@@ -1,0 +1,11 @@
+train:
+  data: data/demos
+  out: runs/bc
+  epochs: 30
+  batch_size: 64
+  lr: 3.0e-4
+  image_size: 96
+  only_success: true
+  stride: 1
+  val_ratio: 0.15
+  seed: 0

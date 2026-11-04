@@ -1,0 +1,19 @@
+# 默认配置 —— 近海作业艇、3 件垃圾、双相机 160x160
+scene:
+  img_width: 160
+  img_height: 160
+  bow_cam_pos: [0.52, 0.00, 0.76]
+  bow_cam_target: [0.12, 0.02, 0.02]
+  bow_cam_fovy: 46.0
+  spawn_settle: 0.6
+
+env:
+  n_objects: 3
+  dt_decision: 0.1          # 决策层 10 Hz
+  dt_ctrl: 0.01             # 内环 100 Hz
+  action_scale: 0.02        # 每决策步最大 2 cm
+  max_decisions: 90
+  vehicle_kind: sea
+  vehicle_scale: 0.35       # 有义波高约 0.12 m 的近海工况
+  lang: zh
+  grasp_mode: attach

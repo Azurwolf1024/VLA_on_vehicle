@@ -1,0 +1,8 @@
+# 核心
+numpy>=1.24
+mujoco>=3.1
+pyyaml>=6.0
+# 训练 / 评测
+torch>=2.0
+# 可视化（view_scene --headless 导出 PNG 时需要）
+opencv-python>=4.8

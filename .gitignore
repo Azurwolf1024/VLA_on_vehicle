@@ -1,0 +1,25 @@
+# 数据与产物
+data/
+runs/
+dist/
+*.npz
+*.mp4
+*.png
+!docs/**/*.png
+
+# 上游依赖（不随本仓库分发）
+third_party/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
+.idea/
+.vscode/
+
+# MuJoCo 运行日志
+MUJOCO_LOG.TXT

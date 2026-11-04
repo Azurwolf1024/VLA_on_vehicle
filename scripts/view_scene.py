@@ -1,0 +1,95 @@
+#!/usr/bin/env python
+"""可视化: 交互式看场景 / 导出回合图像。
+
+    python scripts/view_scene.py                       # 打开 MuJoCo 窗口跑专家
+    python scripts/view_scene.py --headless --frames 4 --out runs/scene.png
+
+无显示环境（远程/CI）时用 ``--headless``: 只做离屏渲染并把若干帧拼成一张图。
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from vla_vehicle.config import load_env_config            # noqa: E402
+from vla_vehicle.control.expert import ScriptedExpert     # noqa: E402
+from vla_vehicle.sim.env import PickPlaceEnv              # noqa: E402
+
+
+def headless(env, out: Path, frames: int, steps_every: int = 12) -> None:
+    import cv2
+    obs = env.reset(seed=0)
+    expert = ScriptedExpert(env)
+    rows = []
+    for k in range(env.cfg.max_decisions):
+        if k % steps_every == 0 and len(rows) < frames:
+            rows.append(np.hstack([obs.global_rgb, obs.wrist_rgb]))
+        obs, _, done, info = env.step(expert.act(obs))
+        if done:
+            break
+    if not rows:
+        rows = [np.hstack([obs.global_rgb, obs.wrist_rgb])]
+    import numpy as _np
+    img = _np.vstack(rows)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(out), img[..., ::-1])
+    print(f"已保存 {out} ({img.shape[1]}x{img.shape[0]}), success={info['success']}")
+
+
+def interactive(env) -> None:
+    import mujoco
+    import mujoco.viewer
+    print("窗口已打开: 关闭窗口结束。专家策略正在执行。")
+    obs = env.reset(seed=0)
+    expert = ScriptedExpert(env)
+    with mujoco.viewer.launch_passive(env.model, env.data) as viewer:
+        viewer.cam.distance = 1.6
+        viewer.cam.lookat[:] = [0.15, 0.05, 0.35]
+        k = 0
+        while viewer.is_running():
+            t0 = time.perf_counter()
+            obs, _, done, info = env.step(expert.act(obs))
+            if done:
+                print(f"回合结束 success={info['success']}, 重开")
+                obs = env.reset(seed=int(time.time()) % 100000)
+                expert = ScriptedExpert(env)
+            viewer.sync()
+            dt = 1.0 / 10.0 - (time.perf_counter() - t0)
+            if dt > 0:
+                time.sleep(dt)
+            k += 1
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--config", type=str, default=None)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--vehicle-scale", type=float, default=None)
+    ap.add_argument("--headless", action="store_true")
+    ap.add_argument("--frames", type=int, default=4)
+    ap.add_argument("--out", type=str, default="runs/scene.png")
+    args = ap.parse_args()
+
+    cfg = load_env_config(args.config, vehicle_scale=args.vehicle_scale)
+    env = PickPlaceEnv(cfg, seed=args.seed)
+    try:
+        if args.headless:
+            headless(env, Path(args.out), args.frames)
+        else:
+            interactive(env)
+    finally:
+        env.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
