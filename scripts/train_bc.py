@@ -20,6 +20,13 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+# 先做依赖检查再导入重模块: 缺上游时给一句能照做的提示, 而不是一屏 traceback
+from vla_vehicle import deps as _deps                     # noqa: E402
+try:
+    _deps.ensure_upstream()
+except _deps.MissingUpstreamError as _e:
+    sys.exit(f"\n[依赖缺失] {_e}\n")
+
 from vla_vehicle.config import TrainConfig                     # noqa: E402
 from vla_vehicle.data.dataset import EpisodeDataset, make_loader  # noqa: E402
 from vla_vehicle.policies.bc import BCNet, BCPolicy            # noqa: E402
