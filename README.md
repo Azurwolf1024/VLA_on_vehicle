@@ -31,18 +31,20 @@
 | 垃圾 | 4 类（易拉罐 / 方块 / 纸箱 / 水瓶），每回合随机 3 件，形状与颜色互不相同 |
 | 语言 | 中文 4 种句式 + 英文 3 种句式（字符级 token，48 长） |
 | 动作 | 4 维：甲板系 TCP 增量（±2 cm/步）+ 夹爪 0/1 |
+| 内环 | `pos` 关节位置伺服 + DLS 逆解（默认）／`tsid` 上游解析动力学 + QP 力矩环 |
 | 专家（上界） | **静止 8/8、sea 0.35 8/8、sea 1.0 8/8**（见 `results/bench/`） |
 | 数据 | 160² 双相机 / 约 70 帧 → **2.1 MB 一条**（压缩 npz） |
 | 策略 | 行为克隆基线（双相机 + 指令 + 本体感觉，~1.5 M 参数，CPU 可训）；20 条示范下闭环 **0/6**，见 §5 |
 | 预训练 VLA | **只有接入位**（`policies/vla_adapter.py`），未接权重 —— 见 `docs/vla_interface.md` |
-| 测试 | 13 条，含"MuJoCo FK 与上游 FK 逐点一致（1e-7）"和"完整抓放跑通" |
+| 测试 | 17 条，含"MuJoCo FK 与上游 FK 逐点一致（1e-7）"、"解析动力学与 MuJoCo 逐项一致（1e-6)" 和"完整抓放跑通" |
 | 最大缺口 | 没有真机；单步 BC 在 20 条示范上过拟合到"时间规律"，闭环跑不通（§5） |
 
-> **一个必须说清楚的结论**：v0.1 里**专家对海况不敏感**（三档都是 100%）。
-> 原因是任务写在甲板系、内环位置伺服很硬，船的运动会通过关节目标自动抵消 ——
-> 现阶段"载具"主要影响**感知**（画面在晃、物体在动），而不是控制。
-> 要让动力学补偿真正起作用，需要把上游的 TSID 力矩环接进来并把任务改到世界系，
-> 这是 v0.3 的目标（`docs/roadmap.md`）。
+> **一个必须说清楚的结论**：任务本身**对海况不敏感**（三档都是 100%）。
+> 因为任务写在甲板系、内环足够硬，船的运动会通过关节目标自动抵消 ——
+> 对"捡甲板上的垃圾"这件事，载具主要影响**感知**（画面在晃、物体在动），不是控制。
+>
+> 上游那套动力学补偿真正起作用的地方是**世界系定点**。这一版已经把上游的
+> TSID 力矩环接进来了（§6），实测能把船摇对末端的影响从 **31.6 mm 压到 1.1 mm**。
 
 ---
 
@@ -156,7 +158,71 @@ BC 的失败模式很具体：它**确实朝目标物体移动**，但在离物�
 
 ---
 
-## 6. 目录结构
+## 6. 上游 NERO 模型能不能搬到 MuJoCo
+
+上游的控制算法不依赖任何仿真器：`veh_arm.robot.model.Robot` 自己算 `M(q)`、
+`H = Cq̇ + g(R_WB) + τ_base`、`J`、`J_B`。本项目把**同一个** `ArmSpec` 编译成 MJCF，
+所以两边构造上同源；`tests/test_dynamics.py` 再逐项验证它们确实是同一个被控对象：
+
+| 验证项 | 对比对象 | 相对误差 |
+|---|---|---|
+| `M(q)` | `mj_fullM`（扣掉 armature 0.02） | **4.5e-6** |
+| `H = Cq̇ + g` | `qfrc_bias` | **1.8e-6** |
+| `J`（6×7 世界系） | `mj_jacBody` | **1.4e-7** |
+
+结论：不是"能凑合用"，而是同一个模型。于是 `vla_vehicle/control/tsid.py` 把上游
+`TSIDController` 原样接上，MuJoCo 只负责接触与积分。
+
+### 怎么切换
+
+```bash
+# 默认：关节位置伺服（采集/训练用这个，快 4 倍）
+python scripts/view_scene.py
+
+# 力矩环 + 甲板系目标：任务语义不变，只是换成 QP 出力矩
+python scripts/view_scene.py --control-mode tsid
+
+# 力矩环 + 世界系目标：末端钉在世界上，这是唯一能体现"抗船摇"的配置
+python scripts/view_scene.py --control-mode tsid --control-frame world --vehicle-scale 1.0
+```
+
+配置里等价于 `env.control_mode` / `env.frame` / `env.tsid.*`，见 `configs/tsid_world.yaml`。
+
+### 实测（`python scripts/bench_control.py`，`results/bench/control.json`）
+
+| 内环 | 海况 0 | 0.35 | 1.0 | CPU 秒/回合 |
+|---|---|---|---|---|
+| `pos` | 4/4 | 4/4 | 4/4 | 0.7 / 2.2 / 2.6 |
+| `tsid` | 4/4 | 4/4 | 4/4 | 7.1 / 10.0 / 10.7 |
+
+零动作保持 3 s，量 TCP 在**世界系**的游走（sea 1.0）：
+
+| 内环 / 参考系 | 平均 | 最大 |
+|---|---|---|
+| `pos` / deck | 14.5 mm | 31.3 mm |
+| `tsid` / deck | 14.5 mm | 31.6 mm |
+| `tsid` / world | **0.8 mm** | **1.1 mm** |
+
+注意读法：`pos` 与 `tsid` 在 deck 系下一样 —— 因为它们的**目标本身**在随船动。
+18 倍差距来自**换参考系**，不是内环本身。真正被验证的是：上游的基座运动前馈
+在 MuJoCo 里成立。细节与边界见 `docs/control.md`。
+
+### 接的过程中踩到两个坑（都改了代码，没改上游）
+
+1. **转子惯量必须进 QP**。MuJoCo 的 `armature`（0.02）上游模型里没有，而 NERO 腕部
+   连杆惯量只有 1e-3 量级。事后补 `τ += A·q̈` 会让 QP 的力矩约束失真（实测关节 4 要求
+   47 N·m、上限 40），电机一饱和就进极限环。改成 `_ArmatureRobot` 把 A 加进 `M` 再进 QP。
+2. **TCP ≠ 法兰**。上游 `ee_pose` 是法兰，任务目标是 TCP（+105 mm）。不换基就是
+   让控制器追一个偏出 10 cm 的虚点，现象是"臂一直朝错的方向爬"。
+
+顺带还发现场景里一个更基础的错误：vessel 之前是**自由体**，每步都在重力下自由下落
+（0.1 s 掉 4.9 cm），只是被逐帧覆写 qpos 掩盖了。于是"基座运动被给定"这个前提高估，
+力矩环怎么调都不对。改成 mocap 运动学平台后同一实验漂移从 4.34 rad 降到 0.054 rad。
+详见 `docs/architecture.md` §2.3。
+
+---
+
+## 7. 目录结构
 
 ```
 VLA_on_vehicle/
@@ -173,19 +239,21 @@ VLA_on_vehicle/
 │   │   └── env.py           载具驱动 + 三级时序 + 双相机观测 + 成功判据
 │   ├── control/
 │   │   ├── ik.py            DLS 逆解（基座系，带零空间偏好）
+│   │   ├── tsid.py          ★ 上游解析动力学 + TSID 力矩环（臂型解耦）
 │   │   └── expert.py        脚本专家（分阶段 + 位移限幅）
 │   ├── data/                回合结构 / 录制器 / 训练 Dataset
 │   └── policies/            策略接口 / BC 基线 / 预训练 VLA 接入位
-├── scripts/                 record_demos · train_bc · eval_policy · view_scene · fetch_upstream
-├── configs/                 default · sea_calm · sea_rough · train_bc
-├── tests/                   13 条：运动学一致性 / 环境契约 / 端到端 / 数据
-├── results/bench/           专家成功率的三档基准（含每条回合明细）
-└── docs/                    architecture · sim · data · vla_interface · roadmap
+├── scripts/                 record_demos · train_bc · eval_policy · view_scene ·
+│                            bench_control · fetch_upstream
+├── configs/                 default · sea_calm · sea_rough · train_bc · tsid_world
+├── tests/                   17 条：运动学一致性 / 动力学一致性 / 环境契约 / 端到端 / 数据
+├── results/bench/           专家成功率的三档基准 + 内环对照
+└── docs/                    architecture · sim · control · data · vla_interface · roadmap
 ```
 
 ---
 
-## 7. 上游依赖与一个上游缺陷
+## 8. 上游依赖与一个上游缺陷
 
 本项目**不复制** `veh_arm` 的代码，运行期从上游导入（`vla_vehicle/deps.py`）。
 这样机械臂模型只有一个真相源，改限位/换 URDF 不会两边漂移。
@@ -199,19 +267,22 @@ VLA_on_vehicle/
 
 ---
 
-## 8. 已知限制
+## 9. 已知限制
 
 1. **抓取用运动学吸附**（`grasp_mode="attach"`）：闭合到位即把物体钉在工具上。
    纯接触摩擦在这个质量比下会持续滑移（实测 40–180 mm），诊断过程写在 `docs/sim.md` §5.2。
    释放后的下落、落点、碰撞仍是真物理。
 2. **没有旋转动作**，抓取姿态恒为朝下。
-3. **任务都在甲板系**，不做世界系定点（那才需要抵抗船摇，见 v0.3）。
-4. **没有真机**；行为克隆的样本量还远不够给出有意义的成功率，现在只证明链路可通。
-5. 垃圾初始朝向与夹爪开合方向对齐（±10°），否则超过 84 mm 开口就夹不住。
+3. **世界系定点只作能力演示**：`tsid` + `frame="world"` 时目标不随船走，
+   甲板上的物体会从夹爪里漂出去，跑不了完整任务。抓放任务始终在甲板系。
+4. **末端估计器还没接**：仿真里把真值基座位姿/速度/加速度直接喂给控制器，
+   真机上游用的是 ESKF，噪声与滞后都还没进来。
+5. **没有真机**；行为克隆的样本量还远不够给出有意义的成功率，现在只证明链路可通。
+6. 垃圾初始朝向与夹爪开合方向对齐（±10°），否则超过 84 mm 开口就夹不住。
 
 ---
 
-## 9. 许可
+## 10. 许可
 
 MIT，见 [LICENSE](LICENSE)。上游 `robotic_arm_on_vehicle` 的许可证见其仓库；
 NERO 的 URDF 由上游自带，本项目不重新分发。

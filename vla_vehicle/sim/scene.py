@@ -54,6 +54,7 @@ class SceneConfig:
     wrist_cam_pos: tuple = (0.0, -0.042, 0.008)   # 工具系: 掌侧外挂
     wrist_cam_tilt: float = 18.0                  # 朝工具轴内倾 (度)
 
+    actuator_mode: str = "position"    # "position"=关节位置伺服 | "torque"=TSID 力矩环
     img_width: int = 160
     img_height: int = 160
 
@@ -176,8 +177,14 @@ def build_scene(cfg: SceneConfig, items: Sequence[TrashItem], spec,
     x.leaf("geom", name="water", type="plane", pos=[0, 0, 0], size=[12, 12, 0.02],
            rgba="0.13 0.28 0.38 1", contype=0, conaffinity=0)
 
-    x.open("body", name=cfg.vessel_body, pos=[0, 0, cfg.deck_height])
-    x.leaf("freejoint", name="vessel_free")
+    # 船体是 **mocap (运动学) 体**: 位姿由外部给定、质量视为无限大。
+    # 用 freejoint 的话, 船每一步都真的在重力下自由下落 (实测 0.1 s 掉 4.9 cm),
+    # 而我们只是每步把 qpos 覆写回去 —— 于是机械臂的基座一直在"下坠",
+    # 任何以"基座运动被给定"为前提的控制器 (上游 TSID) 都会对不上。
+    # 顺带: 机械臂 4 kg 的反作用力矩也不会再把 120 kg 的船推歪。
+    # 代价: MuJoCo 里 mocap 体的速度恒为零, 臂的动力学感受不到基座速度耦合项
+    # (上游模型里有 J_B·V_B), 这一项在 0.1 m/s 量级的海况下对应毫米级误差。
+    x.open("body", name=cfg.vessel_body, pos=[0, 0, cfg.deck_height], mocap="true")
     x.leaf("inertial", pos=[0, 0, -0.12], mass=120.0,
            diaginertia=[9.0, 26.0, 26.0])
     # 船体（吃水线刚好在水面）: 同样在垃圾舱位置开孔, 否则舱只有 3 cm 深,
@@ -224,7 +231,8 @@ def build_scene(cfg: SceneConfig, items: Sequence[TrashItem], spec,
         _object_xml(cfg, it, x)
     x.close("worldbody")
 
-    x.raw(actuator_block(arm, spec, gripper, joint_kp=joint_kp, joint_kv=joint_kv))
+    x.raw(actuator_block(arm, spec, gripper, joint_kp=joint_kp, joint_kv=joint_kv,
+                         mode=cfg.actuator_mode))
 
     x.close("mujoco")
 

@@ -1,0 +1,10 @@
+# 内环换成上游解析模型 + TSID 力矩环, 任务参考系取世界系。
+# 用途: 检验"基座运动前馈"到底压住多少船摇（scripts/bench_control.py --skip-hold 之外的那一栏）
+env:
+  control_mode: tsid
+  frame: world
+  vehicle_scale: 1.0
+  tsid:
+    compensate_base: true     # 关掉 = 上游的 "ignore coupling" 消融基线
+    Kp: 2000.0                # 论文 Table I 是 500, 本环境实测 500 追不上 1 cm 对准
+    Kd: 80.0

@@ -1,0 +1,101 @@
+{
+  "task": [
+    {
+      "mode": "pos",
+      "frame": "deck",
+      "sea": 0.0,
+      "episodes": 4,
+      "success": 4,
+      "rate": 1.0,
+      "mean_steps": 69.5,
+      "sec_per_episode": 0.709493100643158
+    },
+    {
+      "mode": "pos",
+      "frame": "deck",
+      "sea": 0.35,
+      "episodes": 4,
+      "success": 4,
+      "rate": 1.0,
+      "mean_steps": 69.25,
+      "sec_per_episode": 2.2221046686172485
+    },
+    {
+      "mode": "pos",
+      "frame": "deck",
+      "sea": 1.0,
+      "episodes": 4,
+      "success": 4,
+      "rate": 1.0,
+      "mean_steps": 69.0,
+      "sec_per_episode": 2.5514620542526245
+    },
+    {
+      "mode": "tsid",
+      "frame": "deck",
+      "sea": 0.0,
+      "episodes": 4,
+      "success": 4,
+      "rate": 1.0,
+      "mean_steps": 68.75,
+      "sec_per_episode": 7.111366093158722
+    },
+    {
+      "mode": "tsid",
+      "frame": "deck",
+      "sea": 0.35,
+      "episodes": 4,
+      "success": 4,
+      "rate": 1.0,
+      "mean_steps": 68.75,
+      "sec_per_episode": 9.956252336502075
+    },
+    {
+      "mode": "tsid",
+      "frame": "deck",
+      "sea": 1.0,
+      "episodes": 4,
+      "success": 4,
+      "rate": 1.0,
+      "mean_steps": 68.75,
+      "sec_per_episode": 10.655821621418
+    }
+  ],
+  "hold": [
+    {
+      "mode": "pos",
+      "frame": "deck",
+      "sea": 1.0,
+      "seconds": 3.0,
+      "mean_dev": 0.014520003758218852,
+      "max_dev": 0.03125048445596378,
+      "tsid": {}
+    },
+    {
+      "mode": "tsid",
+      "frame": "deck",
+      "sea": 1.0,
+      "seconds": 3.0,
+      "mean_dev": 0.01454458969640226,
+      "max_dev": 0.031628567269651506,
+      "tsid": {
+        "feasible": 1800,
+        "fallback": 0,
+        "active": 0
+      }
+    },
+    {
+      "mode": "tsid",
+      "frame": "world",
+      "sea": 1.0,
+      "seconds": 3.0,
+      "mean_dev": 0.0007827306945836988,
+      "max_dev": 0.0010766899809714029,
+      "tsid": {
+        "feasible": 1800,
+        "fallback": 0,
+        "active": 0
+      }
+    }
+  ]
+}

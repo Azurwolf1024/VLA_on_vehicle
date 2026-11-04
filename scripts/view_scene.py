@@ -81,12 +81,17 @@ def main() -> int:
     ap.add_argument("--config", type=str, default=None)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--vehicle-scale", type=float, default=None)
+    ap.add_argument("--control-mode", choices=("pos", "tsid"), default=None,
+                    help="内环: pos=关节位置伺服(默认) | tsid=上游 TSID 力矩环")
+    ap.add_argument("--control-frame", choices=("deck", "world"), default=None,
+                    help="任务参考系: deck=随甲板动 | world=钉在世界系")
     ap.add_argument("--headless", action="store_true")
     ap.add_argument("--frames", type=int, default=4)
     ap.add_argument("--out", type=str, default="runs/scene.png")
     args = ap.parse_args()
 
-    cfg = load_env_config(args.config, vehicle_scale=args.vehicle_scale)
+    cfg = load_env_config(args.config, vehicle_scale=args.vehicle_scale,
+                          control_mode=args.control_mode, frame=args.control_frame)
     env = PickPlaceEnv(cfg, seed=args.seed)
     try:
         if args.headless:

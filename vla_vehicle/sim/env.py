@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import List, Tuple
 
 import numpy as np
@@ -35,6 +35,7 @@ import mujoco  # noqa: E402
 from veh_arm.platform.vehicle import build_vehicle  # noqa: E402
 
 from ..control.ik import DLSIK  # noqa: E402
+from ..control.tsid import TSIDAdapter, TSIDConfig  # noqa: E402
 from ..robot.arm import (READY_Q, GripperSpec, load_arm,  # noqa: E402
                          topdown_rotation)
 from ..robot.mjcf import quat_from_rot  # noqa: E402
@@ -61,6 +62,11 @@ class EnvConfig:
     vehicle_enabled: bool = True
     lang: str = "zh"
     render: bool = True
+    # 内环: "pos"=关节位置伺服 + DLS 逆解(默认) | "tsid"=上游解析模型 TSID 力矩环
+    control_mode: str = "pos"
+    # 任务参考系: "deck"=目标随甲板动(甲板上的物体就该这样) | "world"=目标钉在世界系
+    frame: str = "deck"
+    tsid: TSIDConfig = field(default_factory=TSIDConfig)
     grasp_mode: str = "attach"   # "attach"=运动学吸附(默认) | "contact"=纯接触摩擦
     grasp_close_below: float = 0.30   # 开口小于此比例即视为"夹住"
     grasp_open_above: float = 0.60    # 开口大于此比例即视为"松开"
@@ -190,7 +196,10 @@ class PickPlaceEnv:
         variant = int(rng.integers(0, 4))
         self.instruction = make_instruction(self.items[self.target_index],
                                             lang=self.cfg.lang, variant=variant)
-        self.scene = build_scene(self.cfg.scene, self.items, self.spec, self.gripper)
+        scene_cfg = self.cfg.scene
+        if self.cfg.control_mode == "tsid":
+            scene_cfg = replace(scene_cfg, actuator_mode="torque")
+        self.scene = build_scene(scene_cfg, self.items, self.spec, self.gripper)
         self.model = mujoco.MjModel.from_xml_string(self.scene.xml)
         self.data = mujoco.MjData(self.model)
         m = self.model
@@ -208,8 +217,12 @@ class PickPlaceEnv:
         self.finger_qadr = np.array([m.jnt_qposadr[jid(j)] for j in self.scene.finger_joints])
         self.finger_act = np.array([mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_ACTUATOR,
                                                       f"act_{j}") for j in self.scene.finger_joints])
-        self.vessel_qadr = int(m.jnt_qposadr[jid("vessel_free")])
-        self.vessel_vadr = int(m.jnt_dofadr[jid("vessel_free")])
+        self.vessel_bid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY,
+                                            self.scene.vessel_body)
+        self.vessel_mocap = int(m.body_mocapid[self.vessel_bid])
+        if self.vessel_mocap < 0:
+            raise RuntimeError("vessel 不是 mocap 体: 见 scene.py 里关于"
+                               "'船不能是自由体' 的说明")
         self.obj_qadr = np.array([m.jnt_qposadr[jid(f"{n}_free")]
                                   for n in self.scene.object_names])
         self.obj_vadr = np.array([m.jnt_dofadr[jid(f"{n}_free")]
@@ -220,6 +233,12 @@ class PickPlaceEnv:
         self.tcp_site = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, self.scene.tcp_site)
         self.cam_bow = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_CAMERA, self.scene.bow_cam)
         self.cam_wrist = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_CAMERA, self.scene.wrist_cam)
+
+        # 力矩环: 上游解析模型 (M/H/J 与 MuJoCo 逐项吻合, 见 tests/test_dynamics.py)
+        self.tsid = None
+        if self.cfg.control_mode == "tsid":
+            self.tsid = TSIDAdapter(self.robot, self.cfg.scene.dt_physics,
+                                    self.cfg.tsid, q_ns=READY_Q)
 
         if self.renderer is not None:
             self.renderer.close()
@@ -260,16 +279,28 @@ class PickPlaceEnv:
         v = st["v_w"] + np.cross(omega, r)
         return R, p + r, omega, v
 
-    def _write_vessel(self, t: float, with_velocity: bool = True) -> None:
+    def _deck_state(self, t: float) -> dict:
+        """甲板安装点(即机械臂基座)的世界系位姿与一二阶运动, 供 TSID 前馈。"""
         R, p, omega, v = self._vessel_state(t)
-        d = self.data
-        d.qpos[self.vessel_qadr:self.vessel_qadr + 3] = p
-        d.qpos[self.vessel_qadr + 3:self.vessel_qadr + 7] = quat_from_rot(R)
-        if with_velocity:
-            d.qvel[self.vessel_vadr:self.vessel_vadr + 3] = v
-            d.qvel[self.vessel_vadr + 3:self.vessel_vadr + 6] = R.T @ omega
+        r = R @ np.array([0.0, 0.0, self.cfg.scene.deck_height])
+        if self.vehicle is None:
+            alpha = np.zeros(3)
+            a_b = np.zeros(3)
         else:
-            d.qvel[self.vessel_vadr:self.vessel_vadr + 6] = 0.0
+            st = self.vehicle.world_state(float(t) + self.t0)
+            alpha = np.asarray(st["alpha_w"], float)
+            a_b = np.asarray(st["a_w"], float)
+        a = a_b + np.cross(alpha, r) + np.cross(omega, np.cross(omega, r))
+        return dict(R=R, p=p, omega=omega, v=v, alpha=alpha, a=a)
+
+    def _write_vessel(self, t: float, with_velocity: bool = True) -> None:
+        """把甲板位姿写进 mocap。
+
+        ``with_velocity`` 为兼容旧调用保留 —— mocap 体没有速度自由度。
+        """
+        R, p, omega, v = self._vessel_state(t)
+        self.data.mocap_pos[self.vessel_mocap] = p
+        self.data.mocap_quat[self.vessel_mocap] = quat_from_rot(R)
 
     def reset(self, seed: int | None = None) -> Obs:
         if seed is not None:
@@ -286,6 +317,10 @@ class PickPlaceEnv:
         self.step_count = 0
         self.grasp_idx = -1
         self._tcp_cmd = np.zeros(3)
+        self._deck_target = np.zeros(3)
+        self._deck_R = np.eye(3)
+        self._world_target = np.zeros(3)
+        self._world_R = np.eye(3)
 
         R0, p0, w0, v0 = self._vessel_state(0.0)
         self._write_vessel(0.0)
@@ -300,15 +335,37 @@ class PickPlaceEnv:
             d.qpos[adr + 3:adr + 7] = _quat_mul(qv, _quat_z(it.yaw))
         mujoco.mj_forward(self.model, d)
 
+        # 复位时的目标就是 READY 位姿本身: 力矩环靠它做重力保持,
+        # 位置伺服靠它当"别动"的 ctrl。两种内环都从同一个参考出发。
+        R_ready, p_ready = self.ik.tcp_pose(READY_Q)
+        self._tcp_cmd = p_ready.copy()
+        self._deck_target = p_ready.copy()
+        self._deck_R = R_ready.copy()
+        R_v, p_v, _, _ = self._vessel_state(0.0)
+        self._world_target = p_v + R_v @ p_ready
+        self._world_R = topdown_rotation(0.0)
+        if self.tsid is not None:
+            self.tsid.reset()
+            self._write_vessel(0.0, with_velocity=False)
+
         # 静置: 让垃圾落到甲板上, 期间甲板固定在 t=0 位姿
         n_settle = int(round(self.cfg.scene.spawn_settle / self.cfg.scene.dt_physics))
         for _ in range(max(1, n_settle)):
             # 静置期间把甲板**连速度一起**钉死: 否则每步都会把 t=0 的船速灌给接触求解器,
             # 垃圾会被"拖着走"几厘米, 相当于回合一开始就滑了一跤。
             self._write_vessel(0.0, with_velocity=False)
+            # 力矩模式下 ctrl=0 是**零力矩**, 臂会在重力下直接掉下来 (实测 120°),
+            # 所以静置期间必须让力矩环真的跑起来。
+            # 参考必须**固定**在 READY: 若每步把参考刷成实测位姿, 就成了"追着自己下垂",
+            # 误差恒为零, 重力补偿永远不会真正起作用。
+            if self.tsid is not None:
+                d.ctrl[self.arm_act] = self._tsid_tau()
             mujoco.mj_step(self.model, d)
         self.t = 0.0
-        self._tcp_cmd = self.tcp_pose()[1].copy()
+        R_tcp, p_tcp = self.tcp_pose()
+        self._tcp_cmd = p_tcp.copy()
+        self._deck_target = p_tcp.copy()
+        self._deck_R = R_tcp.copy()
         return self._obs()
 
     # ------------------------------------------------------------------ #
@@ -333,14 +390,7 @@ class PickPlaceEnv:
 
     def _vessel_pose(self):
         d = self.data
-        p = d.qpos[self.vessel_qadr:self.vessel_qadr + 3].copy()
-        w, x, y, z = d.qpos[self.vessel_qadr + 3:self.vessel_qadr + 7]
-        R = np.array([
-            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
-            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
-        ])
-        return R, p
+        return d.xmat[self.vessel_bid].reshape(3, 3).copy(), d.xpos[self.vessel_bid].copy()
 
     def object_states(self) -> List[dict]:
         """垃圾在**甲板系**下的位姿（专家/评测用的特权信息）。"""
@@ -440,13 +490,31 @@ class PickPlaceEnv:
     # ------------------------------------------------------------------ #
     # 单步
     # ------------------------------------------------------------------ #
+    def _tsid_tau(self) -> np.ndarray:
+        """当前时刻的关节力矩: 上游 TSID 力矩环 + 甲板运动前馈。"""
+        st = self._deck_state(self.t)
+        if self.cfg.frame == "world":
+            p_d, R_d = self._world_target, self._world_R
+            xd_dot = np.zeros(6)
+        else:
+            p_d = st["p"] + st["R"] @ self._deck_target
+            R_d = st["R"] @ self._deck_R
+            r = p_d - st["p"]
+            # 目标随甲板动 -> 目标本身有速度; 不给前馈会留下稳态滞后
+            xd_dot = np.concatenate([st["omega"],
+                                     st["v"] + np.cross(st["omega"], r)])
+        return self.tsid.step(self.q_arm, self.dq_arm, st, R_d, p_d, xd_dot=xd_dot)
+
     def _advance(self, q_cmd: np.ndarray, grip: float) -> None:
         d = self.data
         finger = float(self.gripper.ctrl_from_norm(grip))
+        torque = self.cfg.control_mode == "tsid"
         for _ in range(self.cfg.n_phys):
             self.t += self.cfg.scene.dt_physics
             self._write_vessel(self.t)
-            d.ctrl[self.arm_act] = q_cmd
+            # 力矩环跑在物理步上(500 Hz), 与上游论文的 1 kHz 同量级;
+            # 位置伺服则跑在 100 Hz 内环上, 中间线性插值。
+            d.ctrl[self.arm_act] = self._tsid_tau() if torque else q_cmd
             d.ctrl[self.finger_act] = finger
             self._apply_attach()
             mujoco.mj_step(self.model, d)
@@ -462,15 +530,34 @@ class PickPlaceEnv:
         # 实测出现过动作全零、机械臂却自己往上爬 2 cm/2 s 的现象。
         if float(np.linalg.norm(self._tcp_cmd - self.tcp_pose()[1])) > self.cfg.resync_err:
             self._tcp_cmd = self.tcp_pose()[1].copy()      # 跟踪彻底掉队时重新对齐
-        p_target = np.clip(self._tcp_cmd + dxyz, np.asarray(self.cfg.workspace_lo),
-                           np.asarray(self.cfg.workspace_hi))
+        lo, hi = np.asarray(self.cfg.workspace_lo), np.asarray(self.cfg.workspace_hi)
+        if self.cfg.frame == "world":
+            # 世界系: **指令活在世界上**。增量按"当前甲板朝向"施加 (策略说的
+            # "往前 2 cm"仍然是相对甲板), 但零动作时目标不随船漂 —— 这样机械臂
+            # 才会真的去抵消船摇。边界仍按甲板系裁剪, 免得跑出可达域。
+            R_now, p_now, _, _ = self._vessel_state(self.t)
+            self._world_target = self._world_target + R_now @ dxyz
+            deck_eq = R_now.T @ (self._world_target - p_now)
+            deck_eq = np.clip(deck_eq, lo, hi)
+            self._world_target = p_now + R_now @ deck_eq
+            p_target = deck_eq
+            self._deck_R = self._tcp_R_target(p_target)
+        else:
+            p_target = np.clip(self._tcp_cmd + dxyz, lo, hi)
         self._tcp_cmd = p_target.copy()
-        sol = self.ik.solve(p_target, self._tcp_R_target(p_target), self.q_arm, max_iter=8)
+        self._deck_target = p_target.copy()
+        if self.cfg.frame != "world":
+            self._deck_R = self._tcp_R_target(p_target)
 
-        q_start = self.q_arm
-        for k in range(self.cfg.n_ctrl):
-            s = (k + 1) / self.cfg.n_ctrl
-            self._advance(q_start + s * (sol.q - q_start), grip)
+        if self.cfg.control_mode == "tsid":
+            for _ in range(self.cfg.n_ctrl):
+                self._advance(p_target, grip)
+        else:
+            sol = self.ik.solve(p_target, self._deck_R, self.q_arm, max_iter=8)
+            q_start = self.q_arm
+            for k in range(self.cfg.n_ctrl):
+                s = (k + 1) / self.cfg.n_ctrl
+                self._advance(q_start + s * (sol.q - q_start), grip)
         self.step_count += 1
 
         info = self.evaluate()

@@ -177,7 +177,7 @@ def build_arm(spec: ArmSpec, gripper: GripperSpec | None = None,
               mount_pos=(0.0, 0.0, 0.0), mount_euler=(0.0, 0.0, 0.0),
               joint_kp: float = 2400.0, joint_kv: float = 60.0,
               wrist_cam_pos=(0.0, -0.042, 0.008), wrist_cam_fovy: float = 80.0,
-              wrist_cam_tilt: float = 18.0
+              wrist_cam_tilt: float = 18.0, with_tool: bool = True
               ) -> ArmMJCF:
     """生成机械臂 + 夹爪 + 腕部相机的 MJCF 片段（不含 actuator）。"""
     gripper = gripper or GripperSpec()
@@ -207,8 +207,9 @@ def build_arm(spec: ArmSpec, gripper: GripperSpec | None = None,
             x.leaf("geom", name=f"{tag}_g", type="capsule", fromto=[*a, *b], size=[r],
                    rgba="0.42 0.45 0.50 1", contype=0, conaffinity=0)
         if i == spec.n - 1:
-            _tool(x, gripper, name=name, cam_pos=wrist_cam_pos, cam_fovy=wrist_cam_fovy,
-                  cam_tilt=wrist_cam_tilt)
+            if with_tool:
+                _tool(x, gripper, name=name, cam_pos=wrist_cam_pos,
+                      cam_fovy=wrist_cam_fovy, cam_tilt=wrist_cam_tilt)
         else:
             emit(i + 1)
         x.close("body")
@@ -276,12 +277,21 @@ def _tool(x: _Xml, g: GripperSpec, name: str, cam_pos, cam_fovy: float,
 
 def actuator_block(arm: ArmMJCF, spec: ArmSpec, gripper: GripperSpec,
                    joint_kp: float = 2400.0, joint_kv: float = 60.0,
-                   tau_scale: float = 1.0) -> str:
-    """位置伺服执行器（关节力矩上限取上游 ``spec.tau_max``）。"""
+                   tau_scale: float = 1.0, mode: str = "position") -> str:
+    """执行器组。
+
+    ``mode="position"``: 关节位置伺服, ``ctrl`` = 目标角度（默认, 训练/采集用）。
+    ``mode="torque"``  : 纯力矩电机, ``ctrl`` = 关节力矩（牛顿·米）, 供上游 TSID 力矩环用。
+        夹爪始终保持位置伺服 —— 开合是二值指令, 没必要也不该进 QP。
+    """
     x = _Xml()
     x.open("actuator")
     for i, jn in enumerate(arm.joint_names):
         fmax = float(spec.tau_max[i]) * tau_scale
+        if mode == "torque":
+            x.leaf("motor", name=f"act_{jn}", joint=jn, gear=1.0,
+                   forcerange=[-fmax, fmax], ctrlrange=[-fmax, fmax])
+            continue
         x.leaf("position", name=f"act_{jn}", joint=jn, kp=joint_kp, kv=joint_kv,
                forcerange=[-fmax, fmax],
                ctrlrange=[float(spec.q_min[i]), float(spec.q_max[i])])
