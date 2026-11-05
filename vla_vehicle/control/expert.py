@@ -83,6 +83,18 @@ class ScriptedExpert:
         return float(self.env.cfg.action_scale)
 
     # ------------------------------------------------------------------ #
+    def _look(self, obs=None):
+        """目标物体的 (甲板系中心位置, 半高, 支撑面高度)。
+
+        默认实现读**真值** (`env.object_states`), 这是仿真才有的特权信息。
+        视觉流水线 (`policies/cv_grasp.py`) 覆盖这个方法, 换成"检测 + 反投影"——
+        阶段机因此只有一份, 两种方法共用, 对比才干净。
+        """
+        st = self.env.object_states()[self.env.target_index]
+        p = np.asarray(st["p"], float)
+        half = float(st["item"].shape.half_height)
+        return p, half, float(p[2] - half)
+
     def grasp_z(self) -> float:
         """抓取时指尖的高度。
 
@@ -90,18 +102,18 @@ class ScriptedExpert:
         掌部会压在罐子顶上, 表现为"下不去、也夹不住"。落在顶面以下 45 mm 则
         指垫完整包住物体上半段, 掌部始终在顶面之上。
         """
-        st = self.env.object_states()[self.env.target_index]
-        top = float(st["p"][2]) + st["item"].shape.half_height
+        p, half, floor_z = self._look(None)
+        top = float(p[2]) + half
         # 物体躺在世界水平的水面/地面上, 所以"下限"要相对**它自己的支撑面**算,
         # 不能写死 0.004 (那是甲板面的高度)。垃圾在舷外时支撑面是 -deck_height。
-        floor = float(st["p"][2]) - st["item"].shape.half_height + self.cfg.grasp_floor
+        floor = floor_z + self.cfg.grasp_floor
         return max(floor, top - self.cfg.grasp_below_top)
 
-    def _targets(self):
+    def _targets(self, obs=None):
         """当前阶段的 (目标点, 夹爪指令)。"""
         env, cfg = self.env, self.cfg
         sc = env.cfg.scene
-        obj = env.object_states()[env.target_index]["p"]
+        obj = self._look(obs)[0]
         # 抬起阶段必须用**抓住那一刻**的指尖高度: 物体已经在夹爪上, 它的高度
         # 会跟着手一起涨, 若继续读实时位姿, "抬到 gz+lift" 就变成追着自己往上爬
         # (实测 10 步内从 0.12 爬到 0.33, 直到阶段超时)。
@@ -142,7 +154,7 @@ class ScriptedExpert:
     def act(self, obs) -> np.ndarray:
         cfg = self.cfg
         p_tcp = np.asarray(obs.tcp, float)
-        target, grip = self._targets()
+        target, grip = self._targets(obs)
         target = np.asarray(target, float)
 
         delta = np.clip(target - p_tcp, -self.action_scale, self.action_scale)

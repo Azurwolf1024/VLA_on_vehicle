@@ -1,0 +1,714 @@
+{
+  "episodes": 5,
+  "seed0": 0,
+  "rows": [
+    {
+      "policy": "expert",
+      "sea": 0.0,
+      "n": 5,
+      "success": 5,
+      "success_rate": 1.0,
+      "grasp_err_mean": 0.00018730707204014935,
+      "grasp_err_max": 0.0005498633929534982,
+      "steps_mean": 88.4,
+      "steps_max": 98,
+      "wall_s": 65.9,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 98,
+          "grasp_err": 0.0005498633929534982,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 94,
+          "grasp_err": 0.00011555703564382827,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 79,
+          "grasp_err": 6.583784691797142e-05,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 87,
+          "grasp_err": 0.00010800926487435257,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 84,
+          "grasp_err": 9.726781981109637e-05,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        }
+      ]
+    },
+    {
+      "policy": "cv",
+      "sea": 0.0,
+      "n": 5,
+      "success": 5,
+      "success_rate": 1.0,
+      "grasp_err_mean": 0.009225292378287772,
+      "grasp_err_max": 0.031643048147693406,
+      "steps_mean": 88.2,
+      "steps_max": 96,
+      "wall_s": 80.1,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 96,
+          "grasp_err": 0.031643048147693406,
+          "phase": "retreat",
+          "hits": 8,
+          "misses": 0
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 94,
+          "grasp_err": 0.003457233200425483,
+          "phase": "open",
+          "hits": 5,
+          "misses": 2
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 79,
+          "grasp_err": 0.0031697306904183496,
+          "phase": "open",
+          "hits": 4,
+          "misses": 3
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 87,
+          "grasp_err": 0.005663819381457485,
+          "phase": "open",
+          "hits": 4,
+          "misses": 3
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 85,
+          "grasp_err": 0.0021926304714441347,
+          "phase": "open",
+          "hits": 5,
+          "misses": 2
+        }
+      ]
+    },
+    {
+      "policy": "pbvs",
+      "sea": 0.0,
+      "n": 5,
+      "success": 5,
+      "success_rate": 1.0,
+      "grasp_err_mean": 0.007038265607793517,
+      "grasp_err_max": 0.022978068949201045,
+      "steps_mean": 88.6,
+      "steps_max": 92,
+      "wall_s": 80.2,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 92,
+          "grasp_err": 0.022978068949201045,
+          "phase": "open",
+          "hits": 8,
+          "misses": 0
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 90,
+          "grasp_err": 0.004024653867409673,
+          "phase": "open",
+          "hits": 7,
+          "misses": 1
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 82,
+          "grasp_err": 0.0009472647652962291,
+          "phase": "open",
+          "hits": 5,
+          "misses": 3
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 90,
+          "grasp_err": 0.005705773783976697,
+          "phase": "open",
+          "hits": 0,
+          "misses": 8
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 89,
+          "grasp_err": 0.0015355666730839453,
+          "phase": "open",
+          "hits": 7,
+          "misses": 1
+        }
+      ]
+    },
+    {
+      "policy": "bc",
+      "sea": 0.0,
+      "n": 5,
+      "success": 1,
+      "success_rate": 0.2,
+      "grasp_err_mean": 0.0221814810194322,
+      "grasp_err_max": 0.03335077829651278,
+      "steps_mean": 156.4,
+      "steps_max": 170,
+      "wall_s": 142.4,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": false,
+          "steps": 170,
+          "grasp_err": 0.02350702527987124,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 102,
+          "grasp_err": 0.009686639481912585,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 2,
+          "success": false,
+          "steps": 170,
+          "grasp_err": null,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 3,
+          "success": false,
+          "steps": 170,
+          "grasp_err": null,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 4,
+          "success": false,
+          "steps": 170,
+          "grasp_err": 0.03335077829651278,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        }
+      ]
+    },
+    {
+      "policy": "expert",
+      "sea": 0.35,
+      "n": 5,
+      "success": 5,
+      "success_rate": 1.0,
+      "grasp_err_mean": 0.0012332508719083584,
+      "grasp_err_max": 0.002242758137815167,
+      "steps_mean": 87.8,
+      "steps_max": 98,
+      "wall_s": 51.0,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 98,
+          "grasp_err": 0.002242758137815167,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 93,
+          "grasp_err": 0.001403601047576249,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 78,
+          "grasp_err": 0.0006855102305836482,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 86,
+          "grasp_err": 0.0005393077487985275,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 84,
+          "grasp_err": 0.0012950771947682013,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        }
+      ]
+    },
+    {
+      "policy": "cv",
+      "sea": 0.35,
+      "n": 5,
+      "success": 5,
+      "success_rate": 1.0,
+      "grasp_err_mean": 0.010904222473640434,
+      "grasp_err_max": 0.030496803404942374,
+      "steps_mean": 88.6,
+      "steps_max": 96,
+      "wall_s": 49.7,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 96,
+          "grasp_err": 0.030496803404942374,
+          "phase": "open",
+          "hits": 7,
+          "misses": 0
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 95,
+          "grasp_err": 0.0058410234236002,
+          "phase": "open",
+          "hits": 6,
+          "misses": 1
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 80,
+          "grasp_err": 0.0028637540091875314,
+          "phase": "open",
+          "hits": 5,
+          "misses": 2
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 87,
+          "grasp_err": 0.007354913788306967,
+          "phase": "open",
+          "hits": 4,
+          "misses": 3
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 85,
+          "grasp_err": 0.007964617742165106,
+          "phase": "open",
+          "hits": 6,
+          "misses": 1
+        }
+      ]
+    },
+    {
+      "policy": "pbvs",
+      "sea": 0.35,
+      "n": 5,
+      "success": 5,
+      "success_rate": 1.0,
+      "grasp_err_mean": 0.009909264622260832,
+      "grasp_err_max": 0.02178468393206153,
+      "steps_mean": 88.6,
+      "steps_max": 92,
+      "wall_s": 49.0,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 92,
+          "grasp_err": 0.02178468393206153,
+          "phase": "open",
+          "hits": 8,
+          "misses": 0
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 90,
+          "grasp_err": 0.007552230757139314,
+          "phase": "open",
+          "hits": 7,
+          "misses": 1
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 82,
+          "grasp_err": 0.005312929021665667,
+          "phase": "open",
+          "hits": 6,
+          "misses": 2
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 90,
+          "grasp_err": 0.009717993074831245,
+          "phase": "open",
+          "hits": 0,
+          "misses": 8
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 89,
+          "grasp_err": 0.005178486325606409,
+          "phase": "open",
+          "hits": 8,
+          "misses": 0
+        }
+      ]
+    },
+    {
+      "policy": "bc",
+      "sea": 0.35,
+      "n": 5,
+      "success": 1,
+      "success_rate": 0.2,
+      "grasp_err_mean": 0.0279529453561269,
+      "grasp_err_max": 0.04000777839326407,
+      "steps_mean": 158.8,
+      "steps_max": 170,
+      "wall_s": 96.3,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": false,
+          "steps": 170,
+          "grasp_err": 0.04000777839326407,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 1,
+          "success": false,
+          "steps": 170,
+          "grasp_err": null,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 114,
+          "grasp_err": 0.03091881393492887,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 3,
+          "success": false,
+          "steps": 170,
+          "grasp_err": null,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 4,
+          "success": false,
+          "steps": 170,
+          "grasp_err": 0.012932243740187754,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        }
+      ]
+    },
+    {
+      "policy": "expert",
+      "sea": 1.0,
+      "n": 5,
+      "success": 5,
+      "success_rate": 1.0,
+      "grasp_err_mean": 0.0025003670289107634,
+      "grasp_err_max": 0.003664201806215074,
+      "steps_mean": 89.2,
+      "steps_max": 105,
+      "wall_s": 51.6,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 105,
+          "grasp_err": 0.003664201806215074,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 88,
+          "grasp_err": 0.0021191297774350304,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 79,
+          "grasp_err": 0.0018177321970181707,
+          "phase": "retreat",
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 88,
+          "grasp_err": 0.001834852401526562,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 86,
+          "grasp_err": 0.003065918962358979,
+          "phase": "open",
+          "hits": null,
+          "misses": null
+        }
+      ]
+    },
+    {
+      "policy": "cv",
+      "sea": 1.0,
+      "n": 5,
+      "success": 5,
+      "success_rate": 1.0,
+      "grasp_err_mean": 0.014607431380801316,
+      "grasp_err_max": 0.038729041617231216,
+      "steps_mean": 89.2,
+      "steps_max": 97,
+      "wall_s": 52.1,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 97,
+          "grasp_err": 0.038729041617231216,
+          "phase": "open",
+          "hits": 7,
+          "misses": 0
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 96,
+          "grasp_err": 0.0032265765210185158,
+          "phase": "open",
+          "hits": 6,
+          "misses": 1
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 79,
+          "grasp_err": 0.006475092907407986,
+          "phase": "open",
+          "hits": 4,
+          "misses": 3
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 87,
+          "grasp_err": 0.010056914792052559,
+          "phase": "open",
+          "hits": 4,
+          "misses": 3
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 87,
+          "grasp_err": 0.014549531066296303,
+          "phase": "open",
+          "hits": 5,
+          "misses": 2
+        }
+      ]
+    },
+    {
+      "policy": "pbvs",
+      "sea": 1.0,
+      "n": 5,
+      "success": 5,
+      "success_rate": 1.0,
+      "grasp_err_mean": 0.019267621155469476,
+      "grasp_err_max": 0.02500521277139303,
+      "steps_mean": 92.4,
+      "steps_max": 106,
+      "wall_s": 51.3,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 92,
+          "grasp_err": 0.02334327751090811,
+          "phase": "open",
+          "hits": 8,
+          "misses": 0
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 90,
+          "grasp_err": 0.01159410036722418,
+          "phase": "open",
+          "hits": 7,
+          "misses": 1
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 83,
+          "grasp_err": 0.019789194423117024,
+          "phase": "open",
+          "hits": 6,
+          "misses": 2
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 106,
+          "grasp_err": 0.016606320704705052,
+          "phase": "done",
+          "hits": 0,
+          "misses": 8
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 91,
+          "grasp_err": 0.02500521277139303,
+          "phase": "open",
+          "hits": 8,
+          "misses": 0
+        }
+      ]
+    },
+    {
+      "policy": "bc",
+      "sea": 1.0,
+      "n": 5,
+      "success": 3,
+      "success_rate": 0.6,
+      "grasp_err_mean": 0.029797137631216178,
+      "grasp_err_max": 0.040401820191914406,
+      "steps_mean": 150.0,
+      "steps_max": 170,
+      "wall_s": 88.0,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 139,
+          "grasp_err": 0.01908400004259133,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 161,
+          "grasp_err": 0.024778762436385767,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 110,
+          "grasp_err": 0.034923967853973205,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 3,
+          "success": false,
+          "steps": 170,
+          "grasp_err": null,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        },
+        {
+          "seed": 4,
+          "success": false,
+          "steps": 170,
+          "grasp_err": 0.040401820191914406,
+          "phase": null,
+          "hits": null,
+          "misses": null
+        }
+      ]
+    }
+  ]
+}

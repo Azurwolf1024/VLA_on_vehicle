@@ -59,7 +59,8 @@ class TrainConfig:
     batch_size: int = 64
     lr: float = 3e-4
     weight_decay: float = 1e-4
-    image_size: int = 96          # 训练时下采样, 省显存/时间
+    image_size: int = 96          # 训练时缩放到的边长(不裁剪, 见 data/preproc.py)
+    chunk: int = 1                # action chunk: 一次预测未来 K 步。1 = 单步 BC
     only_success: bool = True
     stride: int = 1
     val_ratio: float = 0.15

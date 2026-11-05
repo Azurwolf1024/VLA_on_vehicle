@@ -31,7 +31,7 @@ class BCNet:
     @staticmethod
     def build(vocab_size: int, act_dim: int = ACTION_DIM, width: int = 32,
               lang_dim: int = 48, prop_dim: int = 64, feat_dim: int = 256,
-              image_size: int = 96, drop: float = 0.1):
+              image_size: int = 96, drop: float = 0.1, chunk: int = 1):
         import torch
         import torch.nn as nn
 
@@ -55,9 +55,15 @@ class BCNet:
                     nn.Linear(self.vis_out + lang_dim + prop_dim, feat_dim),
                     nn.ReLU(inplace=True), nn.Dropout(drop),
                     nn.Linear(feat_dim, feat_dim // 2), nn.ReLU(inplace=True))
-                self.pos_head = nn.Linear(feat_dim // 2, 3)
-                self.grip_head = nn.Linear(feat_dim // 2, 1)
+                # 一次输出**未来 K 步**（action chunk）。K=1 就是原来的单步 BC。
+                # 为什么需要它: 单步 BC 在闭环里会把每步的小误差当成新状态再喂回去
+                # (compounding error) —— 实测 1/5 成功, 失败回合的典型轨迹是
+                # "冲过目标 12 cm 后才闭爪"。chunk 让模型承诺一小段轨迹,
+                # 不再每一步都重新决策, 这正是 ACT / Diffusion Policy / SmolVLA 的共同选择。
+                self.pos_head = nn.Linear(feat_dim // 2, 3 * chunk)
+                self.grip_head = nn.Linear(feat_dim // 2, chunk)
                 self.image_size = image_size
+                self.chunk = chunk
 
             def forward(self, batch: Dict):
                 img = torch.cat([batch["global_rgb"], batch["wrist_rgb"]], dim=1)
@@ -69,8 +75,11 @@ class BCNet:
                 prop = torch.cat([batch["q"], batch["dq"], batch["tcp"],
                                   batch["grip"].unsqueeze(-1)], dim=1)
                 h = self.trunk(torch.cat([v, lang, self.prop(prop)], dim=1))
-                pos = torch.tanh(self.pos_head(h))
-                grip_logit = self.grip_head(h).squeeze(-1)
+                B = h.shape[0]
+                pos = torch.tanh(self.pos_head(h)).view(B, self.chunk, 3)
+                grip_logit = self.grip_head(h).view(B, self.chunk)
+                if self.chunk == 1:
+                    return pos[:, 0], grip_logit[:, 0]
                 return pos, grip_logit
 
         return _Net()
@@ -82,7 +91,7 @@ class BCPolicy(Policy):
     name = "bc"
 
     def __init__(self, net, stats: Dict[str, np.ndarray], tokenizer, device: str = "cpu",
-                 image_size: int = 96):
+                 image_size: int = 96, chunk: int = 1):
         import torch
         self.torch = torch
         self.net = net.to(device).eval()
@@ -90,24 +99,32 @@ class BCPolicy(Policy):
         self.stats = {k: torch.as_tensor(v, device=device) for k, v in stats.items()}
         self.tokenizer = tokenizer
         self.image_size = int(image_size)
+        self.chunk = max(1, int(chunk))
         self._cache_tokens: Optional[np.ndarray] = None
         self._instruction = ""
+        #: 当前正在执行的 chunk（一次推理、执行 K 步）与它的游标
+        self._chunk: Optional[np.ndarray] = None
+        self._chunk_i = 0
 
     # ------------------------------------------------------------------ #
     def reset(self, instruction: str = "") -> None:
         self._instruction = instruction
         self._cache_tokens = np.asarray(self.tokenizer.encode(instruction), np.int64)
+        self._chunk = None
+        self._chunk_i = 0
 
     def _prep_img(self, img: np.ndarray):
-        h, w = img.shape[:2]
-        if h != self.image_size:
-            step = max(1, h // self.image_size)
-            img = img[::step, ::step][: self.image_size, : self.image_size]
-        return img
+        # 与训练端共用同一个函数 —— 两边各写一份迟早分叉, 而分叉只表现为闭环失灵。
+        from ..data.preproc import resize_frame
+        return resize_frame(img, self.image_size)
 
     def act(self, obs) -> np.ndarray:
         t = self.torch
         torch = t
+        if self._chunk is not None and self._chunk_i < len(self._chunk):
+            a = self._chunk[self._chunk_i]
+            self._chunk_i += 1
+            return a
         if self._cache_tokens is None:
             self.reset(obs.instruction)
         q = (torch.as_tensor(obs.q, dtype=t.float32, device=self.device)
@@ -129,17 +146,24 @@ class BCPolicy(Policy):
         )
         with t.no_grad():
             pos, logit = self.net(batch)
-            p = t.sigmoid(logit).item()
-        out = np.zeros(ACTION_DIM, dtype=np.float32)
-        out[:3] = pos[0].cpu().numpy()
-        out[3] = 1.0 if p >= 0.5 else 0.0
-        return out
+            if self.chunk == 1:
+                pos = pos[:, None, :]
+                logit = logit[:, None]
+            pos = pos[0].cpu().numpy()
+            p = t.sigmoid(logit)[0].cpu().numpy()
+        seq = np.zeros((len(pos), ACTION_DIM), dtype=np.float32)
+        seq[:, :3] = pos
+        seq[:, 3] = (p >= 0.5).astype(np.float32)
+        self._chunk = seq
+        self._chunk_i = 1
+        return seq[0]
 
     # ------------------------------------------------------------------ #
     def save(self, path: str | Path, extra: dict | None = None) -> None:
         payload = dict(state_dict=self.net.state_dict(),
                        stats=self.stats, tokenizer=self.tokenizer.state_dict(),
-                       image_size=self.image_size, extra=extra or {})
+                       image_size=self.image_size, chunk=self.chunk,
+                       extra=extra or {})
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self.torch.save(payload, str(path))
@@ -150,7 +174,9 @@ class BCPolicy(Policy):
         from ..sim.objects import Tokenizer
         payload = torch.load(str(path), map_location=device, weights_only=False)
         tok = Tokenizer.from_state(payload["tokenizer"])
-        net = BCNet.build(vocab_size=tok.size, image_size=payload.get("image_size", 96))
+        chunk = int(payload.get("chunk", 1))
+        net = BCNet.build(vocab_size=tok.size, image_size=payload.get("image_size", 96),
+                          chunk=chunk)
         net.load_state_dict(payload["state_dict"])
         return cls(net, payload["stats"], tok, device=device,
-                   image_size=payload.get("image_size", 96))
+                   image_size=payload.get("image_size", 96), chunk=chunk)

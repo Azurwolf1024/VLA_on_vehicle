@@ -1,7 +1,11 @@
 # 数据与产物
-data/
-runs/
-dist/
+# **必须写成 /data/ 而不是 data/** —— 后者会匹配任何层级的 data 目录,
+# 把 vla_vehicle/data/ 这个源码包一起忽略掉。这个坑真实发生过:
+# 仓库里缺了整个 data 包(schema/dataset/recorder), clone 下来根本跑不起来,
+# 而本地一切正常, 所以很长时间没人发现。
+/data/
+/runs/
+/dist/
 *.npz
 *.mp4
 *.png

@@ -402,7 +402,12 @@ def _tool(x: _Xml, g: GripperSpec, name: str, cam_pos, cam_fovy: float,
                pos=[0.0, sgn * (g.finger_gap0 + g.pad_half[1]),
                     pad_center_z - 0.012],
                size=list(g.pad_half),
-               rgba="0.95 0.75 0.15 1", contype=1, conaffinity=1,
+               # 指垫颜色**不能和垃圾同色**。原来用 (0.95,0.75,0.15) 的黄色,
+               # 与"黄色垃圾"(0.92,0.76,0.12) 的归一化色度只差 0.017 ——
+               # 腕部近景里指垫是上千像素的大块, 任何基于颜色的检测都会把它当成目标
+               # (实测黄色目标的回合 46 次检测全部失效)。改成品红, 与四种垃圾色的
+               # 色度距离都 > 0.45。
+               rgba="0.86 0.12 0.62 1", contype=1, conaffinity=1,
                friction="2.0 0.05 0.001", condim=4)
         x.close("body")
     # 只作测量用: 尺寸取到几乎为零, 避免挡住腕部相机

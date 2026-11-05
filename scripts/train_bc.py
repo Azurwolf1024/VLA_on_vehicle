@@ -50,13 +50,16 @@ def main() -> int:
     ap.add_argument("--lr", type=float, default=None)
     ap.add_argument("--image-size", type=int, default=None)
     ap.add_argument("--stride", type=int, default=None)
+    ap.add_argument("--chunk", type=int, default=None,
+                    help="action chunk 长度: 一次预测未来 K 步 (1=单步 BC)")
     ap.add_argument("--device", type=str, default=None)
     ap.add_argument("--config", type=str, default=None)
     ap.add_argument("--all-failed", action="store_true", help="连失败回合一起训练")
     args = ap.parse_args()
 
     cfg = TrainConfig.from_yaml(args.config)
-    for k in ("data", "out", "epochs", "batch_size", "lr", "image_size", "stride", "device"):
+    for k in ("data", "out", "epochs", "batch_size", "lr", "image_size", "stride",
+              "device", "chunk"):
         v = getattr(args, k)
         if v is not None:
             setattr(cfg, k, v)
@@ -71,14 +74,15 @@ def main() -> int:
     np.random.seed(cfg.seed)
 
     ds = EpisodeDataset(cfg.data, only_success=cfg.only_success, stride=cfg.stride,
-                        image_size=cfg.image_size)
+                        image_size=cfg.image_size, chunk=cfg.chunk)
     stats = ds.stats()
     tok = Tokenizer()
     tr, va = ds.split(cfg.val_ratio, seed=cfg.seed)
     print(f"数据集: {ds.summary()}")
     print(f"训练帧 {len(tr)} / 验证帧 {len(va)} | 词表 {tok.size} | 设备 {device}")
 
-    net = BCNet.build(vocab_size=tok.size, image_size=cfg.image_size)
+    net = BCNet.build(vocab_size=tok.size, image_size=cfg.image_size,
+                      chunk=cfg.chunk)
     net.to(device)
     opt = torch.optim.AdamW(net.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     tr_loader = make_loader(tr, cfg.batch_size, True, device, cfg.num_workers)
@@ -105,8 +109,11 @@ def main() -> int:
         for batch in tr_loader:
             batch = norm_batch(to_device(batch))
             pos, logit = net(batch)
-            loss_pos = F.l1_loss(pos, batch["action"][:, :3])
-            loss_grip = F.binary_cross_entropy_with_logits(logit, batch["action"][:, 3])
+            act = batch["action"]
+            if cfg.chunk == 1:
+                act = act[:, 0]                       # (B,4)
+            loss_pos = F.l1_loss(pos, act[..., :3])
+            loss_grip = F.binary_cross_entropy_with_logits(logit, act[..., 3])
             loss = loss_pos + 0.5 * loss_grip
             opt.zero_grad(set_to_none=True)
             loss.backward()
@@ -125,12 +132,15 @@ def main() -> int:
                 for batch in va_loader:
                     batch = norm_batch(to_device(batch))
                     pos, logit = net(batch)
-                    loss_pos = F.l1_loss(pos, batch["action"][:, :3])
-                    loss_grip = F.binary_cross_entropy_with_logits(logit, batch["action"][:, 3])
+                    act = batch["action"]
+                    if cfg.chunk == 1:
+                        act = act[:, 0]
+                    loss_pos = F.l1_loss(pos, act[..., :3])
+                    loss_grip = F.binary_cross_entropy_with_logits(logit, act[..., 3])
                     tot += float(loss_pos + 0.5 * loss_grip) * len(batch["grip"])
                     n += len(batch["grip"])
                     pred = (torch.sigmoid(logit) >= 0.5).float()
-                    correct += int((pred == (batch["action"][:, 3] >= 0.5).float()).sum())
+                    correct += int((pred == (act[..., 3] >= 0.5).float()).sum())
             va_loss = tot / max(1, n)
             acc = correct / max(1, n)
             if va_loss < best["val"]:
@@ -141,7 +151,8 @@ def main() -> int:
 
     out = Path(cfg.out)
     out.mkdir(parents=True, exist_ok=True)
-    policy = BCPolicy(net, stats, tok, device=device, image_size=cfg.image_size)
+    policy = BCPolicy(net, stats, tok, device=device, image_size=cfg.image_size,
+                      chunk=cfg.chunk)
     policy.save(out / "policy.pt", extra=dict(best=best, hist=hist, data=str(cfg.data)))
     (out / "metrics.json").write_text(json.dumps(
         dict(best=best, hist=hist, dataset=ds.summary(), config=cfg.__dict__),
