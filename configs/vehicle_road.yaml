@@ -1,0 +1,14 @@
+# 车载 —— 行驶中（B 级路面）
+#
+# 车在动, 但**姿态扰动比船小一个量级**: 上游平台模型实测 12 s 窗口内
+# 横摇 1.14°、纵摇 1.11°（船在 scale=1.0 时是 6.03°/12.59°）。
+# 目标仍然静对静（地面不说谎）, 所以难点从"目标在动"退化为"基座在抖"。
+scene:
+  surface_kind: ground
+env:
+  vehicle_kind: road
+  vehicle_params:
+    speed: 8.0                # m/s ≈ 29 km/h
+    cls: B                    # ISO 8608 路面等级
+  vehicle_scale: 1.0
+  target_motion: pinned

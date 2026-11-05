@@ -94,10 +94,14 @@ def main() -> int:
     ap.add_argument("--headless", action="store_true")
     ap.add_argument("--frames", type=int, default=4)
     ap.add_argument("--out", type=str, default="runs/scene.png")
+    ap.add_argument("--visual", choices=("auto", "mesh", "capsule"), default=None,
+                    help="机械臂外观: mesh=上游真实 STL, capsule=骨架胶囊, auto=有网格就用网格")
     args = ap.parse_args()
 
     cfg = load_env_config(args.config, vehicle_scale=args.vehicle_scale,
                           control_mode=args.control_mode, frame=args.control_frame)
+    if args.visual is not None:
+        cfg.scene.visual = args.visual
     env = PickPlaceEnv(cfg, seed=args.seed)
     try:
         if args.headless:

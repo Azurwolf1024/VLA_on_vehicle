@@ -1,0 +1,510 @@
+{
+  "episodes": 5,
+  "seed0": 0,
+  "rows": [
+    {
+      "motion": "pinned",
+      "frame": "deck",
+      "sea": 0.0,
+      "n": 5,
+      "success": 5,
+      "grasp_err_mean": 0.00018730707204014935,
+      "grasp_err_max": 0.0005498633929534982,
+      "steps_mean": 88.4,
+      "steps_max": 98,
+      "sway_deck_mm_mean": 6.059515713968148e-08,
+      "sway_world_z_mm_mean": 2.7403079805310426e-10,
+      "wall_s": 42.2,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 98,
+          "grasp_err": 0.0005498633929534982,
+          "sway_deck_mm": 4.970945265936336e-08,
+          "sway_world_z_mm": 7.632783294297951e-14
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 94,
+          "grasp_err": 0.00011555703564382827,
+          "sway_deck_mm": 3.710512491127744e-08,
+          "sway_world_z_mm": 1.0061396160665481e-13
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 79,
+          "grasp_err": 6.583784691797142e-05,
+          "sway_deck_mm": 1.3699180678727885e-09,
+          "sway_world_z_mm": 1.3699180678727885e-09
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 87,
+          "grasp_err": 0.00010800926487435257,
+          "sway_deck_mm": 1.5671375059015633e-08,
+          "sway_world_z_mm": 5.898059818321144e-14
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 84,
+          "grasp_err": 9.726781981109637e-05,
+          "sway_deck_mm": 1.9911991500087822e-07,
+          "sway_world_z_mm": 0.0
+        }
+      ]
+    },
+    {
+      "motion": "surface",
+      "frame": "deck",
+      "sea": 0.0,
+      "n": 5,
+      "success": 5,
+      "grasp_err_mean": 0.0001675006098038429,
+      "grasp_err_max": 0.00046136485586784363,
+      "steps_mean": 88.4,
+      "steps_max": 98,
+      "sway_deck_mm_mean": 5.821249005973849e-10,
+      "sway_world_z_mm_mean": 5.61564683643212e-12,
+      "wall_s": 71.4,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 98,
+          "grasp_err": 0.00046136485586784363,
+          "sway_deck_mm": 7.241337655405983e-11,
+          "sway_world_z_mm": 3.469446951953614e-15
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 94,
+          "grasp_err": 0.00011555703564595439,
+          "sway_deck_mm": 6.826164448333944e-11,
+          "sway_world_z_mm": 0.0
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 79,
+          "grasp_err": 6.583784692944572e-05,
+          "sway_deck_mm": 2.8074764735208646e-11,
+          "sway_world_z_mm": 2.8074764735208646e-11
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 87,
+          "grasp_err": 0.00012331027903478772,
+          "sway_deck_mm": 1.1164534957485825e-10,
+          "sway_world_z_mm": 0.0
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 84,
+          "grasp_err": 7.143303154118299e-05,
+          "sway_deck_mm": 2.6302293676394584e-09,
+          "sway_world_z_mm": 0.0
+        }
+      ]
+    },
+    {
+      "motion": "deck",
+      "frame": "deck",
+      "sea": 0.0,
+      "n": 5,
+      "success": 5,
+      "grasp_err_mean": 0.0001674732195912297,
+      "grasp_err_max": 0.00046136485586784363,
+      "steps_mean": 88.4,
+      "steps_max": 98,
+      "sway_deck_mm_mean": 5.821249005973849e-10,
+      "sway_world_z_mm_mean": 5.617728504603292e-12,
+      "wall_s": 64.4,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 98,
+          "grasp_err": 0.00046136485586784363,
+          "sway_deck_mm": 7.241337655405983e-11,
+          "sway_world_z_mm": 3.469446951953614e-15
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 94,
+          "grasp_err": 0.00011555703564595439,
+          "sway_deck_mm": 6.826164448333944e-11,
+          "sway_world_z_mm": 6.938893903907228e-15
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 79,
+          "grasp_err": 6.583784692944572e-05,
+          "sway_deck_mm": 2.8074764735208646e-11,
+          "sway_world_z_mm": 2.8074764735208646e-11
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 87,
+          "grasp_err": 0.00012331027903478772,
+          "sway_deck_mm": 1.1164534957485825e-10,
+          "sway_world_z_mm": 3.469446951953614e-15
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 84,
+          "grasp_err": 7.129608047811701e-05,
+          "sway_deck_mm": 2.6302293676394584e-09,
+          "sway_world_z_mm": 0.0
+        }
+      ]
+    },
+    {
+      "motion": "pinned",
+      "frame": "deck",
+      "sea": 0.35,
+      "n": 5,
+      "success": 5,
+      "grasp_err_mean": 0.0012332508719083584,
+      "grasp_err_max": 0.002242758137815167,
+      "steps_mean": 87.8,
+      "steps_max": 98,
+      "sway_deck_mm_mean": 19.25974967052996,
+      "sway_world_z_mm_mean": 0.02977532652447476,
+      "wall_s": 48.8,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 98,
+          "grasp_err": 0.002242758137815167,
+          "sway_deck_mm": 18.514902651635445,
+          "sway_world_z_mm": 6.245004513516506e-14
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 93,
+          "grasp_err": 0.001403601047576249,
+          "sway_deck_mm": 19.994048013545598,
+          "sway_world_z_mm": 6.591949208711867e-14
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 78,
+          "grasp_err": 0.0006855102305836482,
+          "sway_deck_mm": 15.908141220821918,
+          "sway_world_z_mm": 7.194661533205249e-10
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 86,
+          "grasp_err": 0.0005393077487985275,
+          "sway_deck_mm": 20.121842012535048,
+          "sway_world_z_mm": 0.1488766318878329
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 84,
+          "grasp_err": 0.0012950771947682013,
+          "sway_deck_mm": 21.75981445411179,
+          "sway_world_z_mm": 1.494637746901617e-11
+        }
+      ]
+    },
+    {
+      "motion": "surface",
+      "frame": "deck",
+      "sea": 0.35,
+      "n": 5,
+      "success": 5,
+      "grasp_err_mean": 0.0012936776233044892,
+      "grasp_err_max": 0.0020254450880243095,
+      "steps_mean": 88.6,
+      "steps_max": 98,
+      "sway_deck_mm_mean": 11.640404282938757,
+      "sway_world_z_mm_mean": 25.95030573990714,
+      "wall_s": 81.5,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 98,
+          "grasp_err": 0.0020254450880243095,
+          "sway_deck_mm": 18.066514120652513,
+          "sway_world_z_mm": 30.143670715344186
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 95,
+          "grasp_err": 0.0018338077865586028,
+          "sway_deck_mm": 15.162245721492337,
+          "sway_world_z_mm": 30.143670715344186
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 79,
+          "grasp_err": 0.0008073493877009571,
+          "sway_deck_mm": 9.471577141678987,
+          "sway_world_z_mm": 21.24284263876384
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 87,
+          "grasp_err": 0.0005782354296429749,
+          "sway_deck_mm": 6.477582995735042,
+          "sway_world_z_mm": 22.84035948480939
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 84,
+          "grasp_err": 0.0012235504245956025,
+          "sway_deck_mm": 9.024101435134908,
+          "sway_world_z_mm": 25.38098514527407
+        }
+      ]
+    },
+    {
+      "motion": "deck",
+      "frame": "deck",
+      "sea": 0.35,
+      "n": 5,
+      "success": 5,
+      "grasp_err_mean": 0.0002349055061226134,
+      "grasp_err_max": 0.0003257649582543869,
+      "steps_mean": 88.2,
+      "steps_max": 97,
+      "sway_deck_mm_mean": 7.778129509944329e-07,
+      "sway_world_z_mm_mean": 18.404696159330665,
+      "wall_s": 69.3,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 97,
+          "grasp_err": 0.0003257649582543869,
+          "sway_deck_mm": 4.7747052820771075e-11,
+          "sway_world_z_mm": 16.154064960231334
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 94,
+          "grasp_err": 0.00023892732714328845,
+          "sway_deck_mm": 4.074539534433024e-11,
+          "sway_world_z_mm": 18.143517995516167
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 79,
+          "grasp_err": 0.00012089438036011915,
+          "sway_deck_mm": 2.9460610064644873e-06,
+          "sway_world_z_mm": 15.905733546928715
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 87,
+          "grasp_err": 0.0002559695249550578,
+          "sway_deck_mm": 4.176910744238615e-11,
+          "sway_world_z_mm": 21.26148135940731
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 84,
+          "grasp_err": 0.0002329713399002148,
+          "sway_deck_mm": 9.428734869520701e-07,
+          "sway_world_z_mm": 20.558682934569806
+        }
+      ]
+    },
+    {
+      "motion": "pinned",
+      "frame": "deck",
+      "sea": 1.0,
+      "n": 5,
+      "success": 5,
+      "grasp_err_mean": 0.0025003670289107634,
+      "grasp_err_max": 0.003664201806215074,
+      "steps_mean": 89.2,
+      "steps_max": 105,
+      "sway_deck_mm_mean": 66.68484541320956,
+      "sway_world_z_mm_mean": 0.0008446803957257165,
+      "wall_s": 48.2,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 105,
+          "grasp_err": 0.003664201806215074,
+          "sway_deck_mm": 83.52986233819132,
+          "sway_world_z_mm": 9.71445146547012e-14
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 88,
+          "grasp_err": 0.0021191297774350304,
+          "sway_deck_mm": 56.38340091980314,
+          "sway_world_z_mm": 4.85722573273506e-14
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 79,
+          "grasp_err": 0.0018177321970181707,
+          "sway_deck_mm": 45.17438177046631,
+          "sway_world_z_mm": 3.8816172498457036e-11
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 88,
+          "grasp_err": 0.001834852401526562,
+          "sway_deck_mm": 77.40892698035562,
+          "sway_world_z_mm": 0.004223401939583427
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 86,
+          "grasp_err": 0.003065918962358979,
+          "sway_deck_mm": 70.92765505723138,
+          "sway_world_z_mm": 8.326672684688674e-14
+        }
+      ]
+    },
+    {
+      "motion": "surface",
+      "frame": "deck",
+      "sea": 1.0,
+      "n": 5,
+      "success": 5,
+      "grasp_err_mean": 0.003232292773345273,
+      "grasp_err_max": 0.00517258603526875,
+      "steps_mean": 89.8,
+      "steps_max": 101,
+      "sway_deck_mm_mean": 39.711524430234995,
+      "sway_world_z_mm_mean": 86.51543007345239,
+      "wall_s": 77.6,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 101,
+          "grasp_err": 0.003114040891263517,
+          "sway_deck_mm": 81.0043377236027,
+          "sway_world_z_mm": 141.10535540935095
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 96,
+          "grasp_err": 0.00517258603526875,
+          "sway_deck_mm": 43.43372238475661,
+          "sway_world_z_mm": 86.12477347241197
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 79,
+          "grasp_err": 0.0023362399559546014,
+          "sway_deck_mm": 26.963853092354647,
+          "sway_world_z_mm": 60.69383611075381
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 87,
+          "grasp_err": 0.001636601221440491,
+          "sway_deck_mm": 18.39370404041698,
+          "sway_world_z_mm": 65.25816995659825
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 86,
+          "grasp_err": 0.0039019957627990072,
+          "sway_deck_mm": 28.762004910044027,
+          "sway_world_z_mm": 79.39501541814694
+        }
+      ]
+    },
+    {
+      "motion": "deck",
+      "frame": "deck",
+      "sea": 1.0,
+      "n": 5,
+      "success": 5,
+      "grasp_err_mean": 0.0005679839331016583,
+      "grasp_err_max": 0.0007305070848214521,
+      "steps_mean": 88.0,
+      "steps_max": 96,
+      "sway_deck_mm_mean": 8.602000351142213e-08,
+      "sway_world_z_mm_mean": 52.162572133695335,
+      "wall_s": 64.2,
+      "episodes": [
+        {
+          "seed": 0,
+          "success": true,
+          "steps": 96,
+          "grasp_err": 0.0007137451339772478,
+          "sway_deck_mm": 1.9679857928768074e-11,
+          "sway_world_z_mm": 44.014846431100025
+        },
+        {
+          "seed": 1,
+          "success": true,
+          "steps": 94,
+          "grasp_err": 0.00046800439438082243,
+          "sway_deck_mm": 1.080373623221736e-10,
+          "sway_world_z_mm": 51.88464365692518
+        },
+        {
+          "seed": 2,
+          "success": true,
+          "steps": 79,
+          "grasp_err": 0.0003651718554281997,
+          "sway_deck_mm": 4.2889474054270154e-07,
+          "sway_world_z_mm": 45.41893478592226
+        },
+        {
+          "seed": 3,
+          "success": true,
+          "steps": 87,
+          "grasp_err": 0.0005624911969005699,
+          "sway_deck_mm": 1.9507273323142457e-11,
+          "sway_world_z_mm": 60.747894737147185
+        },
+        {
+          "seed": 4,
+          "success": true,
+          "steps": 84,
+          "grasp_err": 0.0007305070848214521,
+          "sway_deck_mm": 1.0580525208350284e-09,
+          "sway_world_z_mm": 58.746541057382046
+        }
+      ]
+    }
+  ]
+}

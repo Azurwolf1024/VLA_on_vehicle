@@ -15,7 +15,7 @@ import unittest
 import numpy as np
 
 from vla_vehicle.robot.arm import load_arm   # 同时负责 ensure_upstream()
-from vla_vehicle.robot.mjcf import build_arm
+from vla_vehicle.robot.mjcf import build_arm, solo_xml
 
 import mujoco
 
@@ -27,12 +27,8 @@ class TestAnalyticModelMatchesMuJoCo(unittest.TestCase):
         cls.n = cls.spec.n
         cls.arm = build_arm(cls.spec, q_ref=np.zeros(cls.n), name="nero",
                             with_tool=False)
-        cls.model = mujoco.MjModel.from_xml_string(f"""
-            <mujoco>
-              <compiler angle="radian" autolimits="true"/>
-              <option gravity="0 0 -9.81"/>
-              <worldbody>{cls.arm.xml}</worldbody>
-            </mujoco>""")
+        cls.model = mujoco.MjModel.from_xml_string(
+            solo_xml(cls.arm, cls.spec, with_actuators=False))
         cls.data = mujoco.MjData(cls.model)
         cls.dof = np.array([
             cls.model.jnt_dofadr[mujoco.mj_name2id(

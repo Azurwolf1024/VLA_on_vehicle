@@ -34,20 +34,25 @@
 | 动作 | 4 维：甲板系 TCP 增量（±2 cm/步）+ 夹爪 0/1，单回合上限 170 步 |
 | 内环 | `pos` 关节位置伺服 + DLS 逆解（默认）／`tsid` 上游解析动力学 + QP 力矩环 |
 | 参考系 | `deck`（默认，目标随甲板动）／`world`（目标钉在世界系） |
-| 专家（上界） | **30/30**：sea 0 / 0.35 / 1.0 × deck / world × 5 seeds |
+| 目标运动 | `pinned`（车载静对静）／`surface`（随水面升沉，船载真实工况）／`deck`（固连甲板） |
+| 机械臂视觉 | 上游真实 NERO 网格（20 万面）／骨架胶囊，只影响渲染 |
+| 专家（上界） | **30/30**：sea 0 / 0.35 / 1.0 × deck / world × 5 seeds；目标运动三档再加 **45/45** |
 | 抓取精度 | 抓取瞬间 TCP 相对物体的**水平**偏差，sea 1.0：deck **2.6 mm** / world **1.0 mm** |
 | 数据 | 160² 双相机、约 90 帧 → **1.6 MB 一条**（压缩 npz），采集 12 s/条 |
 | 策略 | 行为克隆基线（双相机 + 指令 + 本体感觉，~1.5 M 参数，CPU 可训），见 §5 |
 | 预训练 VLA | **只有接入位**（`policies/vla_adapter.py`），未接权重 —— 见 `docs/vla_interface.md` |
-| 测试 | 19 条，含"MuJoCo FK 与上游 FK 逐点一致（1e-7）"、"解析动力学与 MuJoCo 逐项一致（1e-6）"、"完整抓放跑通" |
+| 测试 | 24 条，含"MuJoCo FK 与上游 FK 逐点一致（1e-7）"、"解析动力学与 MuJoCo 逐项一致（1e-6）"、"两档视觉是同一个被控对象"、"完整抓放跑通" |
 
-> **两个必须说清楚的结论**
+> **三个必须说清楚的结论**
 >
 > 1. **任务成功率对海况与参考系都不敏感**（三档海况 × 两种参考系全通过）。
 >    差别只在**精度**上：`world` 系把抓取偏差从 2.6 mm 压到 1.0 mm（2.6 倍）。
 >    因为夹爪开口 84 mm、物体 40–100 mm，3 mm 还不足以造成失败 ——
 >    所以现在能证明的是"补偿有效"，还不能证明"不补偿就失败"。
-> 2. **上游那套动力学模型与 MuJoCo 里的是同一份**（M/H/J 误差 1e-6 量级），
+> 2. **"目标随海况动"不会让任务变难，反而更好追**。船和垃圾漂在同一片波上，升沉是共模的：
+>    sea 1.0 下目标在甲板系里的晃动 `pinned` 66.7 mm → `surface` 39.7 mm（升沉 86.5 mm 被抵消）。
+>    最难的一档恰恰是"目标钉在世界系 + 船在摇"。见 §2。
+> 3. **上游那套动力学模型与 MuJoCo 里的是同一份**（M/H/J 误差 1e-6 量级），
 >    所以 `control/tsid.py` 能把 `TSIDController` 原样接上，见 §6。
 
 ---
@@ -101,7 +106,7 @@ python scripts/eval_policy.py --policy expert --config configs/sea_rough.yaml  #
    ──────┼────────────────────────→ +x (船头)
          │  ═══════════   ← -y 舷墙上的作业口 (半宽 0.22), 舷墙在此断开
          │
-    ≈≈≈ ○   ●   ≈≈≈    ← 垃圾漂在船舷外的水面上 (世界系固定)
+    ≈≈≈ ○   ●   ≈≈≈    ← 垃圾漂在船舷外的水面上 (默认世界系固定, target_motion 可切)
          │   水面 z = −0.12
 ```
 
@@ -123,6 +128,29 @@ python scripts/eval_policy.py --policy expert --config configs/sea_rough.yaml  #
   改到同侧后 88 步、8 px，成功率不变。
 * **工具偏航跟随目标方位角**：恒定 yaw=0 时，目标一到侧舷腕部 J7 就撞限位，
   r=0.45 处位置误差 29 mm（等于够不着）。跟随后同一目标 0.5 mm。
+
+### 船载还是车载？
+
+同一套几何两种读法：甲板 = 车厢底板、舷墙 = 护栏、作业口 = 侧向取物口、
+内置垃圾舱 = 车厢垃圾箱。差别只在两件事：
+
+| | 船载 | 车载 |
+|---|---|---|
+| 目标怎么动 | `surface`：随水面升沉 | `pinned`：地面不说谎，静对静 |
+| 载具扰动（`scale=1.0`，12 s 窗口峰峰值） | 横摇 6.03° / 纵摇 12.59° / 升沉 190.9 mm | 横摇 1.14° / 纵摇 1.11° / 升沉 66.0 mm |
+
+车的**角运动小 5–11 倍**，所以"车载先按静对静做"是站得住的 —— 即使车在跑，
+姿态扰动也只有船的零头。真机上这条更明显：车没有横摇。
+
+反过来，**"目标随海况动"也不像直觉以为的那么难**：船和垃圾漂在同一片波上，
+升沉是共模的。sea 1.0 下目标在甲板系里的晃动从 `pinned` 的 66.7 mm 降到
+`surface` 的 39.7 mm —— 世界系 86.5 mm 的升沉被抵消掉了。完整数据见
+`docs/sim.md` §4.2。
+
+```bash
+python scripts/bench_target.py --episodes 5        # 三档目标运动 × 三海况 × 5 seeds
+python scripts/view_scene.py --config configs/vehicle_mounted.yaml   # 车载静对静
+```
 
 ---
 
@@ -252,6 +280,28 @@ python scripts/view_scene.py --control-mode tsid --control-frame world --vehicle
 18 倍差距来自**换参考系**，不是内环本身。真正被验证的是：上游的基座运动前馈
 在 MuJoCo 里成立，能把船摇对末端的影响压到毫米级。细节与边界见 `docs/control.md`。
 
+### 视觉：仿真里那条臂就是 NERO
+
+上游 `models/nero_stl/` 里存着厂商 SolidWorks 导出的 12 件 STL（就是 Blender 渲染用的那一套），
+`scene.visual="mesh"` 直接把其中 8 件（`base_link` + `link1..7`）挂到对应连杆上。
+STL 顶点**就在 URDF link 坐标里**，以 identity 挂载即可，不用任何补偿变换。
+
+```bash
+python scripts/view_scene.py --visual mesh       # 真实外壳（20 万面）
+python scripts/view_scene.py --visual capsule    # 骨架胶囊（默认自动：有网格就用网格）
+```
+
+两档是**同一个被控对象**，`tests/test_visual.py` 守死：`M(q)` 与 `bias` 逐位相同、
+总质量相同（5.1202 kg）、视觉 geom 一律 `contype=0`。
+
+> **坑**：`<geom type="mesh">` 所在 body 若没写 `<inertial>`，MuJoCo 会按网格体积**当实心体**
+> 估质量 —— 基座凭空多 0.73 kg。基座焊在载具上没有自由度，`M` 不受影响，但"整臂质量"
+> 必须对得上厂商参数，现在从上游 URDF 读（1.0646 kg）。
+>
+> **夹爪和法兰刻意不用网格**：厂商 `flange_link` 相对 link7 有 90° 相位差，
+> 真实夹爪行程 100 mm/侧，而本仿真的指垫是 32 mm 行程、形状与摩擦都标定过的接触几何。
+> 硬套网格会让"看到的"和"碰到的"分家。
+
 ### 接的过程中踩到三个坑（都改了代码，没改上游）
 
 1. **转子惯量必须进 QP**。MuJoCo 的 `armature`（0.02）上游模型里没有，而 NERO 腕部
@@ -276,7 +326,7 @@ VLA_on_vehicle/
 │   ├── config.py            YAML → dataclass（写错键名直接报错）
 │   ├── robot/
 │   │   ├── arm.py           NERO 复用 + TCP/夹爪参数 + READY 位形
-│   │   ├── mjcf.py          ArmSpec → MJCF（与上游同源，FK 逐点一致）
+│   │   ├── mjcf.py          ArmSpec → MJCF（与上游同源，FK 逐点一致）+ 真实网格
 │   │   └── urdf_fix.py      ★ 修补上游把 URDF 惯量读成 0 的缺陷
 │   ├── sim/
 │   │   ├── scene.py         甲板/作业口/垃圾舱/水面/相机/垃圾装配
@@ -289,9 +339,10 @@ VLA_on_vehicle/
 │   ├── data/                回合结构 / 录制器 / 训练 Dataset
 │   └── policies/            策略接口 / BC 基线 / 预训练 VLA 接入位
 ├── scripts/                 record_demos · train_bc · eval_policy · view_scene ·
-│                            bench_control · fetch_upstream
-├── configs/                 default · sea_calm · sea_rough · train_bc · tsid_world
-├── tests/                   19 条：运动学一致性 / 动力学一致性 / 环境契约 / 端到端 / 数据
+│                            bench_control · bench_frame · bench_target · fetch_upstream
+├── configs/                 default · sea_calm · sea_rough · sea_surface · sea_deck_cargo ·
+│                            vehicle_mounted · vehicle_road · train_bc · tsid_world
+├── tests/                   24 条：运动学 / 动力学 / 视觉档等价 / 环境契约 / 端到端 / 数据
 ├── results/bench/           专家成功率的三档基准 + 内环对照
 └── docs/                    architecture · sim · control · data · vla_interface · roadmap
 ```

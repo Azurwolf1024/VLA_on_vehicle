@@ -84,6 +84,9 @@ class SceneConfig:
     wrist_cam_ahead: float = 0.0
 
     actuator_mode: str = "position"    # "position"=关节位置伺服 | "torque"=TSID 力矩环
+    # 机械臂视觉: "mesh"=上游真实 STL | "capsule"=骨架胶囊(快) | "auto"=有网格就用网格。
+    # 只影响渲染, 不影响物理。
+    visual: str = "auto"
     img_width: int = 160
     img_height: int = 160
 
@@ -192,20 +195,26 @@ def build_scene(cfg: SceneConfig, items: Sequence[TrashItem], spec,
     arm = build_arm(spec, gripper=gripper, q_ref=q_ref if q_ref is not None else READY_Q,
                     name="nero", wrist_cam_fovy=cfg.wrist_cam_fovy,
                     wrist_cam_pos=cfg.wrist_cam_pos, wrist_cam_tilt=cfg.wrist_cam_tilt,
-                    wrist_cam_ahead=cfg.wrist_cam_ahead)
+                    wrist_cam_ahead=cfg.wrist_cam_ahead, visual=cfg.visual)
     q = look_at_quat(cfg.bow_cam_pos, cfg.bow_cam_target)
 
     x = _Xml()
     x.raw('<?xml version="1.0" encoding="utf-8"?>')
     x.open("mujoco", model="vla_vehicle_pickplace")
+    # meshdir 必须是**绝对路径**: 场景是用 from_xml_string 加载的, 没有"XML 所在目录"
+    # 可以当基准。上游 STL 不复制进本仓库, 所以路径直接指向上游资产目录。
     x.leaf("compiler", angle="radian", autolimits="true", inertiafromgeom="auto",
-           balanceinertia="true")
+           balanceinertia="true", meshdir=(arm.mesh_dir or None))
     x.leaf("option", timestep=cfg.dt_physics, integrator="implicitfast", cone="elliptic",
            impratio=10.0, gravity=[0, 0, -cfg.gravity], iterations=60)
     x.open("visual")
     x.leaf("global", offwidth=cfg.img_width * 2, offheight=cfg.img_height * 2, fovy=45)
     x.leaf("quality", shadowsize=2048)
     x.close("visual")
+    if arm.mesh_assets:
+        x.open("asset")
+        x.raw(arm.mesh_assets)
+        x.close("asset")
 
     x.open("worldbody")
     x.leaf("light", name="sun", pos=[1.2, -1.0, 2.4], dir=[-0.35, 0.3, -1.0],

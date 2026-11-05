@@ -15,17 +15,11 @@ def load_rig():
     import mujoco
 
     from vla_vehicle.robot.arm import READY_Q, GripperSpec, load_arm
-    from vla_vehicle.robot.mjcf import actuator_block, build_arm
+    from vla_vehicle.robot.mjcf import build_arm, solo_xml
 
     robot, spec, _ = load_arm()
     arm = build_arm(spec, gripper=GripperSpec(), q_ref=READY_Q, name="nero")
-    xml = f"""<mujoco model="rig">
-<compiler angle="radian" autolimits="true"/>
-<option timestep="0.002" integrator="implicitfast"/>
-<worldbody>{arm.xml}</worldbody>
-{actuator_block(arm, spec, GripperSpec())}
-</mujoco>"""
-    model = mujoco.MjModel.from_xml_string(xml)
+    model = mujoco.MjModel.from_xml_string(solo_xml(arm, spec))
     data = mujoco.MjData(model)
     return robot, spec, arm, model, data
 

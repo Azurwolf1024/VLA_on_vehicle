@@ -18,25 +18,138 @@
 
 视觉/碰撞
 ------------------------------------------------------------------
-上游没有网格文件, 这里用"骨架胶囊": 在参考位形上取值, 把第 i 个连杆画成
-``o_i -> o_{i+1}`` 的胶囊。除腕部与手指外**关闭碰撞** (contype=0), 避免臂体
-自碰撞在狭窄位形下产生虚假接触; 抓取只依赖指垫与物体的接触。
+**视觉分两档, 由 ``visual`` 选择:**
+
+``"mesh"``    用上游 ``models/nero_stl/*.stl`` —— 厂商 SolidWorks 导出的真实外壳
+              (agilex agx_arm_urdf, 就是 Blender 渲染用的那一套)。STL 顶点**就在
+              URDF link 系里**(已核对: link2 沿 +y 伸 261 mm、link3 沿 -z 206 mm,
+              与连杆偏置吻合), 所以以 identity 挂到对应 body 即可, 不需要任何补偿变换。
+``"capsule"`` 骨架胶囊: 在参考位形上把第 i 个连杆画成 ``o_i -> o_{i+1}``。
+              没有网格文件时的回落, 也是训练/评测要压渲染开销时的快档。
+
+两档都**关闭碰撞** (contype=0), 避免臂体自碰撞在狭窄位形下产生虚假接触;
+抓取只依赖指垫与物体的接触 —— 换视觉不会改变任何物理量。
+
+夹爪与法兰**不用网格**: 厂商 flange_link 相对 link7 有 90° 相位差
+(``rpy=-1.5708 0 -1.5708``), 真实夹爪行程是 100 mm/侧, 而本仿真的指垫只有
+32 mm 行程且形状/摩擦是标定的接触几何。硬套网格会让"看到的"和"碰到的"分家,
+比省这几个三角面划算得多。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
 from typing import List
 
 import numpy as np
 
-from ..deps import ensure_upstream
+from ..deps import ensure_upstream, veh_arm_root
 
 ensure_upstream()
 
 from veh_arm.robot.model import ArmSpec, Robot  # noqa: E402
 
 from .arm import GripperSpec  # noqa: E402
+
+
+# --------------------------------------------------------------------------- #
+# 真实网格（上游资产, 运行期解析, 不复制）
+# --------------------------------------------------------------------------- #
+#: 上游仓库里 STL 所在子目录
+MESH_SUBDIR = ("models", "nero_stl")
+
+#: 连杆 -> STL 文件名。只有这 8 件进仿真（见模块 docstring: 法兰/夹爪不用网格）。
+_MESH_FILES = {
+    "base_link": "base_link.stl",
+    "link1": "link1.stl",
+    "link2": "link2.stl",
+    "link3": "link3.stl",
+    "link4": "link4.stl",
+    "link5": "link5.stl",
+    "link6": "link6.stl",
+    "link7": "link7.stl",
+}
+
+#: 按连杆给色。"银灰铝合金 + 深灰关节盖"——STL 不带材质, 只能靠分色拉出层次,
+#: 否则 27 万面渲染出来是一坨同色的灰。
+_MESH_RGBA = {
+    "base_link": "0.25 0.27 0.30 1",
+    "link1": "0.28 0.30 0.33 1",
+    "link2": "0.74 0.75 0.77 1",
+    "link3": "0.74 0.75 0.77 1",
+    "link4": "0.30 0.32 0.35 1",
+    "link5": "0.74 0.75 0.77 1",
+    "link6": "0.30 0.32 0.35 1",
+    "link7": "0.55 0.57 0.60 1",
+}
+
+
+@lru_cache(maxsize=1)
+def mesh_dir() -> str | None:
+    """上游 STL 目录的绝对路径 (正斜杠); 找不到返回 ``None``。
+
+    刻意**不复制**到本仓库: 网格是上游 ``agx_arm_urdf`` 的资产, 复制一份就等于
+    承诺"我们的副本永远和上游一致", 这条承诺迟早会被打破。
+    """
+    try:
+        root = Path(veh_arm_root())
+    except Exception:
+        return None
+    d = root.joinpath(*MESH_SUBDIR)
+    if not all((d / f).is_file() for f in _MESH_FILES.values()):
+        return None
+    return d.as_posix()
+
+
+@lru_cache(maxsize=1)
+def mesh_assets() -> str:
+    """``<mesh>`` 声明行, 由 scene 放进了 ``<asset>``。"""
+    d = mesh_dir()
+    if d is None:
+        return ""
+    x = _Xml()
+    for key, fname in _MESH_FILES.items():
+        x.leaf("mesh", name=f"nero_{key}", file=fname,
+               scale=[1.0, 1.0, 1.0])
+    return x.text()
+
+
+@lru_cache(maxsize=1)
+def base_inertial() -> tuple | None:
+    """上游 URDF 里 ``base_link`` 的 ``(质量, 质心, 惯量矩阵)``。
+
+    为什么必须显式写出来: ``arm_base`` 这个 body 上只有视觉 geom。**没有**
+    ``<inertial>`` 时 MuJoCo 会按 geom 的体积当**实心体**估质量 —— 换成真实外壳
+    后基座凭空多出 0.73 kg (总量 4.32 → 5.05 kg)。基座焊在载具上、没有自由度,
+    对臂的 ``M``/``bias`` 影响实测为 0 (1e-16), 但"整臂质量"是要跟厂商参数对账的
+    数字, 不能让它随视觉档漂移。
+    """
+    try:
+        from veh_arm.robot.nero import DEFAULT_URDF
+        from .urdf_fix import read_link_inertials
+        com, I, mass = read_link_inertials(DEFAULT_URDF).get(
+            "base_link", (np.zeros(3), np.zeros((3, 3)), 0.0))
+    except Exception:
+        return None
+    if mass <= 0.0:
+        return None
+    return float(mass), np.asarray(com, float), np.asarray(I, float)
+
+
+def _resolve_visual(visual: str) -> str:
+    """``"auto"`` 有网格就用网格, 否则回落胶囊。"""
+    if visual == "auto":
+        return "mesh" if mesh_dir() is not None else "capsule"
+    if visual not in ("mesh", "capsule"):
+        raise ValueError(f"未知 visual={visual!r}; 可选 auto/mesh/capsule")
+    if visual == "mesh" and mesh_dir() is None:
+        raise FileNotFoundError(
+            "visual='mesh' 但找不到上游 STL。\n"
+            f"期望路径: <upstream>/{'/'.join(MESH_SUBDIR)}/*.stl\n"
+            "改用 visual='capsule' 或确认 VLA_VEHICLE_UPSTREAM 指向的上游仓库带 models/nero_stl。")
+    return visual
 
 
 # --------------------------------------------------------------------------- #
@@ -152,6 +265,9 @@ class ArmMJCF:
     tcp_site: str
     wrist_camera: str
     tool_body: str
+    visual: str = "capsule"      # 实际生效的视觉档 ("mesh" | "capsule")
+    mesh_assets: str = ""        # <mesh> 声明, 供 <asset> 段
+    mesh_dir: str = ""           # <compiler meshdir=...>
 
 
 def _skeleton(spec: ArmSpec, q_ref: np.ndarray) -> List[tuple]:
@@ -178,15 +294,45 @@ def build_arm(spec: ArmSpec, gripper: GripperSpec | None = None,
               joint_kp: float = 2400.0, joint_kv: float = 60.0,
               wrist_cam_pos=(0.0, -0.075, 0.010), wrist_cam_fovy: float = 80.0,
               wrist_cam_tilt: float | None = None, wrist_cam_ahead: float = 0.0,
-              with_tool: bool = True
+              with_tool: bool = True, visual: str = "auto"
               ) -> ArmMJCF:
-    """生成机械臂 + 夹爪 + 腕部相机的 MJCF 片段（不含 actuator）。"""
+    """生成机械臂 + 夹爪 + 腕部相机的 MJCF 片段（不含 actuator）。
+
+    ``visual``: ``"mesh"`` 用上游真实 STL, ``"capsule"`` 用骨架胶囊, ``"auto"``
+    有网格就用网格。视觉档**只影响渲染**, 不影响任何物理量。
+    """
     gripper = gripper or GripperSpec()
     q_ref = np.asarray(q_ref if q_ref is not None else np.zeros(spec.n), float)
+    vis = _resolve_visual(visual)
     segs = _skeleton(spec, q_ref)
+    # 网格名以 spec 里 base_link 的层数为准: 厂商给 7 个转动 link, 编号 1..7
+    if vis == "mesh" and spec.n != len(_MESH_FILES) - 1:
+        raise ValueError(
+            f"网格按 {len(_MESH_FILES) - 1} 个转动 link 准备, 但 ArmSpec.n={spec.n}; "
+            "换臂型时请同时更新 _MESH_FILES")
+
+    def vis_geom(tag: str, key: str, a, b, r, Lb: float) -> None:
+        """给第 i 个连杆画视觉 geom（网格或胶囊, 二选一, 不重叠）。"""
+        if vis == "mesh":
+            x.leaf("geom", name=f"{tag}_vis", type="mesh", mesh=f"nero_{key}",
+                   rgba=_MESH_RGBA[key], contype=0, conaffinity=0)
+            return
+        if Lb < 5e-3:
+            x.leaf("geom", name=f"{tag}_g", type="sphere", pos=a, size=[max(r, 0.025)],
+                   rgba="0.42 0.45 0.50 1", contype=0, conaffinity=0)
+        else:
+            x.leaf("geom", name=f"{tag}_g", type="capsule", fromto=[*a, *b], size=[r],
+                   rgba="0.42 0.45 0.50 1", contype=0, conaffinity=0)
 
     x = _Xml()
     x.open("body", name=f"{name}_base", pos=mount_pos, euler=mount_euler)
+    bi = base_inertial()
+    if bi is not None:
+        m_b, com_b, I_b = bi
+        x.leaf("inertial", pos=list(com_b), mass=m_b,
+               fullinertia=[I_b[0, 0], I_b[1, 1], I_b[2, 2],
+                            I_b[0, 1], I_b[0, 2], I_b[1, 2]])
+    vis_geom(f"{name}_base", "base_link", np.zeros(3), np.zeros(3), 0.04, 0.0)
 
     def emit(i: int) -> None:
         """递归展开第 i 个连杆 —— MJCF 的子 body 必须**嵌套**在父连杆里。"""
@@ -201,12 +347,7 @@ def build_arm(spec: ArmSpec, gripper: GripperSpec | None = None,
         full = [I[0, 0], I[1, 1], I[2, 2], I[0, 1], I[0, 2], I[1, 2]]
         x.leaf("inertial", pos=L.com, mass=float(L.mass), fullinertia=full)
         a, b, r, Lb = segs[i]
-        if Lb < 5e-3:
-            x.leaf("geom", name=f"{tag}_g", type="sphere", pos=a, size=[max(r, 0.025)],
-                   rgba="0.42 0.45 0.50 1", contype=0, conaffinity=0)
-        else:
-            x.leaf("geom", name=f"{tag}_g", type="capsule", fromto=[*a, *b], size=[r],
-                   rgba="0.42 0.45 0.50 1", contype=0, conaffinity=0)
+        vis_geom(tag, f"link{i + 1}", a, b, r, Lb)
         if i == spec.n - 1:
             if with_tool:
                 _tool(x, gripper, name=name, cam_pos=wrist_cam_pos,
@@ -230,6 +371,9 @@ def build_arm(spec: ArmSpec, gripper: GripperSpec | None = None,
         tcp_site=f"{name}_tcp",
         wrist_camera=f"{name}_wrist_cam",
         tool_body=f"{name}_tool",
+        visual=vis,
+        mesh_assets=mesh_assets() if vis == "mesh" else "",
+        mesh_dir=(mesh_dir() or "") if vis == "mesh" else "",
     )
 
 
@@ -328,4 +472,31 @@ def actuator_block(arm: ArmMJCF, spec: ArmSpec, gripper: GripperSpec,
 def camera_xml(name: str, pos, quat, fovy: float) -> str:
     x = _Xml()
     x.leaf("camera", name=name, pos=list(pos), quat=list(quat), fovy=float(fovy))
+    return x.text()
+
+
+def solo_xml(arm: ArmMJCF, spec: ArmSpec, gripper: GripperSpec | None = None,
+             model_name: str = "rig", with_actuators: bool = True) -> str:
+    """只含机械臂的完整 MJCF（测试 / 单臂调试用）。
+
+    单独抽出来是因为"带网格的臂"必须把 ``<compiler meshdir>`` 与 ``<asset>``
+    一起带上; 手工拼 ``<worldbody>{arm.xml}</worldbody>`` 在换成 mesh 视觉后
+    会以 ``mesh not found`` 报错 —— 让它只有一种正确写法。
+
+    ``with_actuators=False`` 给"纯被动臂"的动力学对照用（没有工具时也不该有指爪执行器）。
+    """
+    x = _Xml()
+    x.raw(f'<mujoco model="{model_name}">')
+    x.leaf("compiler", angle="radian", autolimits="true", meshdir=(arm.mesh_dir or None))
+    x.leaf("option", timestep=0.002, integrator="implicitfast")
+    if arm.mesh_assets:
+        x.open("asset")
+        x.raw(arm.mesh_assets)
+        x.close("asset")
+    x.open("worldbody")
+    x.raw(arm.xml)
+    x.close("worldbody")
+    if with_actuators:
+        x.raw(actuator_block(arm, spec, gripper or GripperSpec()))
+    x.raw("</mujoco>")
     return x.text()

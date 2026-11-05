@@ -62,6 +62,9 @@ class EnvConfig:
     vehicle_scale: float = 0.35
     vehicle_time_scale: float = 1.0
     vehicle_enabled: bool = True
+    #: 透传给上游 ``build_vehicle`` 的额外参数（如 road 的 ``speed``/``cls``）。
+    #: 不给就用上游 profile 的默认值 —— 这些是**上游**的物理档位, 本仓库不复制。
+    vehicle_params: dict = field(default_factory=dict)
     lang: str = "zh"
     render: bool = True
     # 内环: "pos"=关节位置伺服 + DLS 逆解(默认) | "tsid"=上游解析模型 TSID 力矩环
@@ -70,6 +73,22 @@ class EnvConfig:
     frame: str = "deck"
     tsid: TSIDConfig = field(default_factory=TSIDConfig)
     grasp_mode: str = "attach"   # "attach"=运动学吸附(默认) | "contact"=纯接触摩擦
+    # 目标（要抓的垃圾）自己怎么动 —— 与 frame 正交:
+    #   frame 管"指令活在哪个系里", target_motion 管"物体在世界里怎么动"。
+    #
+    #   "pinned"  世界系静止。车载/岸上: 车停稳、地面不动, 静对静。
+    #   "surface" 随水面升沉。**船载打捞的真实工况**: 垃圾和船漂在同一片波上,
+    #             升沉几乎抵消（共模）, 真正难的是船的姿态摆动。
+    #   "deck"    固连甲板。甲板上的货物/随船载物, 最严苛的一档。
+    #
+    # 默认保持 "pinned": 之前所有基准（30/30、抓取偏差、船摇抑制）都是在这个
+    # 口径下测的, 悄悄改默认值等于让那些数字失去参照。
+    target_motion: str = "pinned"
+    #: 目标升沉 / 船升沉 的幅值比。1.0 = 目标完全跟着船升沉（同相位共模）。
+    surface_follow: float = 1.0
+    #: 目标升沉相对船升沉的相位滞后 (s)。RAO 的相位差 + 波在船长尺度上的传播时差,
+    #: 真实值在 0.1~0.3 s 量级; 给 0 是最"宽容"的共模假设。
+    surface_delay: float = 0.0
     grasp_close_below: float = 0.30   # **指令**小于此比例即视为"夹住"
     # 松开看的是**实测**开口, 不是指令: 刚下发张开时手指还没动, 此时就恢复碰撞
     # 会让物体和指垫重叠, 接触求解把它一步弹出 10 cm (实测 0.262→0.364)。
@@ -126,6 +145,12 @@ def _quat_z(yaw: float) -> np.ndarray:
     return np.array([np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)])
 
 
+def _quat_to_rot(q: np.ndarray) -> np.ndarray:
+    R = np.zeros(9)
+    mujoco.mju_quat2Mat(R, np.asarray(q, float))
+    return R.reshape(3, 3)
+
+
 class PickPlaceEnv:
     """载具上的"捡垃圾 -> 丢进内置垃圾舱"环境。"""
 
@@ -138,7 +163,8 @@ class PickPlaceEnv:
         self.ik = DLSIK(self.robot, q_pref=READY_Q)
         self.vehicle = (build_vehicle(self.cfg.vehicle_kind,
                                       scale=float(self.cfg.vehicle_scale),
-                                      time_scale=float(self.cfg.vehicle_time_scale))
+                                      time_scale=float(self.cfg.vehicle_time_scale),
+                                      **dict(self.cfg.vehicle_params))
                         if self.cfg.vehicle_enabled else None)
         self.items: List[TrashItem] = []
         self.grasp_idx = -1
@@ -317,6 +343,94 @@ class PickPlaceEnv:
         self.data.mocap_pos[self.vessel_mocap] = p
         self.data.mocap_quat[self.vessel_mocap] = quat_from_rot(R)
 
+    # ------------------------------------------------------------------ #
+    # 目标随载具运动（船载 vs 车载）
+    # ------------------------------------------------------------------ #
+    def _heave(self, t: float) -> Tuple[float, float]:
+        """载具在时刻 ``t`` 的升沉 (m) 与升沉速度 (m/s)。
+
+        波面高度用**船体升沉**当代理, 而不是另造一条正弦: 船和漂浮垃圾漂在同一片
+        波上, 都由同一个水面驱动, 差别只在 RAO 的幅值与相位上。用同一个信号源,
+        "目标怎么动"与"船怎么动"从一开始就同源 —— 否则两者的相位关系是编出来的,
+        任何关于"升沉是共模的、能相互抵消"的结论都不可信。
+        """
+        if self.vehicle is None:
+            return 0.0, 0.0
+        st = self.vehicle.world_state(float(t) + self.t0)
+        return float(st["p_B"][2]), float(st["v_w"][2])
+
+    def _surface_motion(self) -> Tuple[float, float]:
+        """目标相对锚点时刻的升沉量与升沉速度。"""
+        delay = float(self.cfg.surface_delay)
+        z1, v1 = self._heave(self.t - delay)
+        z0, _ = self._heave(-delay)
+        k = float(self.cfg.surface_follow)
+        return k * (z1 - z0), k * v1
+
+    def _capture_anchors(self) -> None:
+        """静置结束后, 记下每个垃圾的实测位姿作为随动锚点。
+
+        用实测而不是采样值: 静置 0.6 s 里物体在重力下落了几毫米、可能还蹭了一下。
+        锚点偏一点, 后面整条轨迹就整体偏一点。
+        """
+        d = self.data
+        R0, p0, _, _ = self._vessel_state(0.0)
+        self._obj_anchor, self._obj_anchor_q, self._obj_deck = [], [], []
+        for adr in self.obj_qadr:
+            p_w = d.qpos[adr:adr + 3].copy()
+            q_w = d.qpos[adr + 3:adr + 7].copy()
+            R_w = _quat_to_rot(q_w)
+            self._obj_anchor.append(p_w)
+            self._obj_anchor_q.append(q_w)
+            self._obj_deck.append((R0.T @ (p_w - p0), R0.T @ R_w))
+
+    def _apply_target_motion(self) -> None:
+        """按 ``target_motion`` 把未被夹持的物体运动学驱动一遍。
+
+        为什么是**运动学驱动**而不是给它们加力: 漂浮物由水动力支承、地面上的轻物由
+        支撑面支承, 它们的位置由水面/地面决定, 不是自由刚体积分出来的。每步覆写
+        qpos 并给上解析速度, 等价于"无穷大的支承刚度" —— 与 vessel 用 mocap 同思路。
+
+        速度必须一起给对: 只写 qpos 而把 qvel 留成 0, 接触求解器会认为物体与其他
+        表面在相互滑动, 于是在"跟甲板动"和"躺在支撑面上"之间凭空造出摩擦冲量。
+        """
+        mode = self.cfg.target_motion
+        if mode == "pinned" or not getattr(self, "_obj_anchor", None):
+            return
+        if mode not in ("surface", "deck"):
+            raise ValueError(f"未知 target_motion={mode!r}; 可选 pinned/surface/deck")
+        d = self.data
+        if mode == "surface":
+            dz, vz = self._surface_motion()
+        else:
+            R, p, omega, v = self._vessel_state(self.t)
+
+        for i, (qa, va) in enumerate(zip(self.obj_qadr, self.obj_vadr)):
+            if i == self.grasp_idx or i in self._obj_free:
+                continue                         # 夹在手上的交给 _apply_attach
+            qa, va = int(qa), int(va)
+            if mode == "surface":
+                p_exp = self._obj_anchor[i] + np.array([0.0, 0.0, dz])
+                q_exp, v_lin, v_ang = self._obj_anchor_q[i], (0.0, 0.0, vz), np.zeros(3)
+            else:
+                pos_d, R_d = self._obj_deck[i]
+                r = R @ pos_d
+                R_w = R @ R_d
+                p_exp = p + r
+                q_exp = quat_from_rot(R_w)
+                v_lin = v + np.cross(omega, r)
+                v_ang = R_w.T @ omega
+            # 兜底: 物体已经被**别的东西**带离了它该在的位置（`contact` 抓取模式下
+            # 没有吸附语义, 指垫把物体推着走, grasp_idx 永远是 -1）。再按锚点写回去,
+            # 等于和接触求解器拔河。判据取 50 mm —— 正常随动一步的偏差在 0.2 mm 量级。
+            if float(np.linalg.norm(d.qpos[qa:qa + 3] - p_exp)) > 0.05:
+                self._obj_free.add(i)
+                continue
+            d.qpos[qa:qa + 3] = p_exp
+            d.qpos[qa + 3:qa + 7] = q_exp
+            d.qvel[va:va + 3] = v_lin
+            d.qvel[va + 3:va + 6] = v_ang
+
     def reset(self, seed: int | None = None) -> Obs:
         if seed is not None:
             self.rng = np.random.default_rng(seed)
@@ -337,6 +451,8 @@ class PickPlaceEnv:
         self._deck_R = np.eye(3)
         self._world_target = np.zeros(3)
         self._world_R = np.eye(3)
+        self._obj_anchor, self._obj_anchor_q, self._obj_deck = [], [], []
+        self._obj_free = set()
 
         R0, p0, w0, v0 = self._vessel_state(0.0)
         self._write_vessel(0.0)
@@ -378,6 +494,8 @@ class PickPlaceEnv:
                 d.ctrl[self.arm_act] = self._tsid_tau()
             mujoco.mj_step(self.model, d)
         self.t = 0.0
+        # 静置结束后才定随动锚点: 此刻物体的位姿才是回合真正的起点。
+        self._capture_anchors()
         R_tcp, p_tcp = self.tcp_pose()
         self._tcp_cmd = p_tcp.copy()
         self._deck_target = p_tcp.copy()
@@ -489,6 +607,11 @@ class PickPlaceEnv:
                 # 不关掉的话, 60 mm 宽的物体夹在 24 mm 的闭合行程里会把手指顶开
                 # (实测夹持中 grip 从 0.06 跳到 1.00, 画面上等于"张着手搬运")。
                 self._set_object_collision(cand, False)
+                # 被搬动过的物体**永久**退出"随水面/甲板运动"的集合。
+                # 它已经不在原来的位置上了: 再按锚点写回去, 等于把刚丢进桶的垃圾
+                # 瞬移回舷外水面 (实测 surface 档第一版就是这样, 回合跑满 170 步超时,
+                # 而物体又端端正正躺在原来的水面上)。掉出来的就让它掉出来的样子。
+                self._obj_free.add(int(cand))
 
     def _set_object_collision(self, idx: int, on: bool) -> None:
         """开关某个垃圾的碰撞位 (吸附期间关掉, 释放后恢复)。"""
@@ -563,6 +686,8 @@ class PickPlaceEnv:
         for _ in range(self.cfg.n_phys):
             self.t += self.cfg.scene.dt_physics
             self._write_vessel(self.t)
+            # 物体随即被"水面/甲板"带动 —— 必须在 vessel 之后, deck 档要用同一时刻的船位姿
+            self._apply_target_motion()
             # 力矩环跑在物理步上(500 Hz), 与上游论文的 1 kHz 同量级;
             # 位置伺服则跑在 100 Hz 内环上, 中间线性插值。
             d.ctrl[self.arm_act] = self._tsid_tau() if torque else q_cmd
