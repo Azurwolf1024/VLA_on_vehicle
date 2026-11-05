@@ -32,7 +32,7 @@ ensure_upstream()
 
 import mujoco  # noqa: E402
 
-from veh_arm.platform.vehicle import build_vehicle  # noqa: E402
+from veh_arm.platform.vehicle import build_vehicle, get_vehicle_profile  # noqa: E402
 
 from ..control.ik import DLSIK  # noqa: E402
 from ..control.tsid import TSIDAdapter, TSIDConfig  # noqa: E402
@@ -84,10 +84,19 @@ class EnvConfig:
     # 默认保持 "pinned": 之前所有基准（30/30、抓取偏差、船摇抑制）都是在这个
     # 口径下测的, 悄悄改默认值等于让那些数字失去参照。
     target_motion: str = "pinned"
-    #: 目标升沉 / 船升沉 的幅值比。1.0 = 目标完全跟着船升沉（同相位共模）。
+    #: 波面信息的来源。
+    #: ``vehicle``     用载具自己的海况谱（船载: 船和海面同源）。
+    #: ``independent`` 另建一个海况源 —— **岸边/岸基**工况: 车停着不动, 海还在动,
+    #:                 或者船已经系泊而水面不平。此时基座零扰动、目标自己动。
+    surface_source: str = "vehicle"
+    surface_scale: float = 0.35     # surface_source=independent 时的海况幅值
+    surface_wave: str = "sea"       # surface_source=independent 时用哪个谱
+    #: 波面空间相位差的水平距离 (m)。``None`` = 用每件垃圾到船体中心的实际距离。
+    surface_dx: float | None = None
+    #: 目标升沉 / 波面高度 的幅值比。1.0 = 完全跟随（小漂浮物的正常值）。
     surface_follow: float = 1.0
-    #: 目标升沉相对船升沉的相位滞后 (s)。RAO 的相位差 + 波在船长尺度上的传播时差,
-    #: 真实值在 0.1~0.3 s 量级; 给 0 是最"宽容"的共模假设。
+    #: 波面相对载具的额外时延 (s)。空间相位差已由深水色散自动给出,
+    #: 这一项留给"波向未知/其他滞后"; 默认 0。
     surface_delay: float = 0.0
     grasp_close_below: float = 0.30   # **指令**小于此比例即视为"夹住"
     # 松开看的是**实测**开口, 不是指令: 刚下发张开时手指还没动, 此时就恢复碰撞
@@ -166,6 +175,16 @@ class PickPlaceEnv:
                                       time_scale=float(self.cfg.vehicle_time_scale),
                                       **dict(self.cfg.vehicle_params))
                         if self.cfg.vehicle_enabled else None)
+        # 岸边/岸基工况: 载具可以不动, 但海面照样在动
+        self._wave_vehicle = (build_vehicle(self.cfg.surface_wave,
+                                            scale=float(self.cfg.surface_scale),
+                                            time_scale=float(self.cfg.vehicle_time_scale))
+                              if self.cfg.surface_source == "independent" else None)
+        self._wave_amp = np.zeros(1)
+        self._wave_phase = np.zeros(1)
+        self._wave_omega = np.ones(1)
+        self._obj_dx: List[float] = []
+        self._build_wave()
         self.items: List[TrashItem] = []
         self.grasp_idx = -1
         self._attach = None
@@ -344,28 +363,93 @@ class PickPlaceEnv:
         self.data.mocap_quat[self.vessel_mocap] = quat_from_rot(R)
 
     # ------------------------------------------------------------------ #
-    # 目标随载具运动（船载 vs 车载）
+    # 海面：波面高度信号
     # ------------------------------------------------------------------ #
-    def _heave(self, t: float) -> Tuple[float, float]:
-        """载具在时刻 ``t`` 的升沉 (m) 与升沉速度 (m/s)。
+    def _wave_source(self):
+        """提供波面信息的运动对象（载具本身，或一个独立的海况源）。"""
+        if self.cfg.surface_source == "vehicle":
+            return self.vehicle
+        if self.cfg.surface_source == "independent":
+            return self._wave_vehicle
+        raise ValueError(
+            f"未知 surface_source={self.cfg.surface_source!r}; 可选 vehicle/independent")
 
-        波面高度用**船体升沉**当代理, 而不是另造一条正弦: 船和漂浮垃圾漂在同一片
-        波上, 都由同一个水面驱动, 差别只在 RAO 的幅值与相位上。用同一个信号源,
-        "目标怎么动"与"船怎么动"从一开始就同源 —— 否则两者的相位关系是编出来的,
-        任何关于"升沉是共模的、能相互抵消"的结论都不可信。
+    def _build_wave(self) -> None:
+        """从运动对象的 **heave 通道反推波面** 分量。
+
+        为什么不能拿 ``p_B.z`` 当波面
+        ----------------------------------------------------------------
+        ``p_B.z`` 是**船体升沉**，波面高度与它之间隔着船体 RAO 的幅值与相位::
+
+            z_B(t) = Σ amp_i·|H_heave(ω_i)|·cos(ω_i t + ε_i + ψ_heave(ω_i))
+
+        而浮在水面的垃圾跟随的是 ``η(t) = Σ amp_i·cos(ω_i t + ε_i)``。
+        在本环境默认海况(hs=0.35, tp=2.0)下实测这两者**近乎反相**：
+        船升沉相对波面滞后 **151°**（@Tp=2 s）、幅值只有波面的 **0.34 倍**、
+        相关系数 **−0.86**。原因不神秘：波周期 2 s 对应 ω=3.14 rad/s，
+        高于 heave 的固有频率 1.70 rad/s —— 船体惯性来不及跟随短波，波峰处反而下沉。
+
+        所以"用船升沉当波面"会把垃圾驱动到与真实情况相反的方向，直接推翻
+        "升沉共模抵消"这类结论。正确的做法是从上游的 ``_coef/_phi`` 反推::
+
+            amp_i   = coef_heave[i] / |H_heave(ω_i)|
+            phase_i = phi_heave[i]  - ψ_heave(ω_i)
+
+        幅值刻意**保留上游的标定系数**（``_calibrate`` 对三个线位移 DOF 乘了同一个
+        ``s_lin``）：垃圾与船必须在同一个标度里，"相对运动"才有意义。
         """
-        if self.vehicle is None:
-            return 0.0, 0.0
-        st = self.vehicle.world_state(float(t) + self.t0)
-        return float(st["p_B"][2]), float(st["v_w"][2])
+        src = self._wave_source()
+        if src is None:
+            self._wave_amp = np.zeros(1)
+            self._wave_phase = np.zeros(1)
+            self._wave_omega = np.ones(1)
+            return
+        prof = get_vehicle_profile(src.kind)
+        w = np.asarray(src._omega, float)
+        H = prof.rao["heave"]
+        amp = np.asarray(src._coef[2], float) / H.magnitude(w)
+        phase = np.asarray(src._phi[2], float) - H.phase(w)
+        self._wave_amp = amp * float(src.scale)
+        self._wave_phase = phase
+        # 与上游 _eta_and_derivs 一致: 频率也乘 time_scale
+        self._wave_omega = w * float(src.time_scale)
 
-    def _surface_motion(self) -> Tuple[float, float]:
-        """目标相对锚点时刻的升沉量与升沉速度。"""
+    def _wave_at(self, t: float, dx: float = 0.0) -> Tuple[float, float]:
+        """时刻 ``t``、距船体中心水平 ``dx`` 处的波面高度 (m) 与垂向速度 (m/s)。
+
+        ``dx`` 通过**深水色散** ``k = ω²/g`` 折算成相位差: 同一个波分量到达下游的
+        距离远一点, 相位就落后一点。这正是"浪之间不是完全同步"的物理来源 ——
+        对 λ = 6.2 m 的波、0.5 m 的间距, 大约是 29°(0.16 s), 量级不大但方向明确。
+        船体与漂浮物各自实际经历的相位差, 是这一项与船体 RAO 相位之和。
+        """
+        if self._wave_amp.size and not np.any(self._wave_amp):
+            return 0.0, 0.0
+        w = self._wave_omega
+        k = w * w / max(float(self.cfg.scene.gravity), 1e-6)
+        ph = w * t + self._wave_phase - k * dx
+        z = float((self._wave_amp * np.cos(ph)).sum())
+        vz = float((-(self._wave_amp * w) * np.sin(ph)).sum())
+        return z, vz
+
+    def _surface_motion(self) -> Tuple[np.ndarray, np.ndarray]:
+        """每件垃圾相对**锚点时刻**的升沉增量与垂向速度。
+
+        逐物体取各自的水平距离 ``dx`` —— 舷外 0.5 m 的垃圾与船体中心不在同一个
+        相位上, 这是空间上的相位差, 与"时延"是两回事。
+        """
         delay = float(self.cfg.surface_delay)
-        z1, v1 = self._heave(self.t - delay)
-        z0, _ = self._heave(-delay)
-        k = float(self.cfg.surface_follow)
-        return k * (z1 - z0), k * v1
+        follow = float(self.cfg.surface_follow)
+        n = len(self.obj_qadr)
+        dz = np.zeros(n)
+        vz = np.zeros(n)
+        for i in range(n):
+            dx = (self._obj_dx[i] if self.cfg.surface_dx is None
+                  else float(self.cfg.surface_dx))
+            z1, v1 = self._wave_at(self.t - delay, dx)
+            z0, _ = self._wave_at(-delay, dx)
+            dz[i] = follow * (z1 - z0)
+            vz[i] = follow * v1
+        return dz, vz
 
     def _capture_anchors(self) -> None:
         """静置结束后, 记下每个垃圾的实测位姿作为随动锚点。
@@ -376,6 +460,8 @@ class PickPlaceEnv:
         d = self.data
         R0, p0, _, _ = self._vessel_state(0.0)
         self._obj_anchor, self._obj_anchor_q, self._obj_deck = [], [], []
+        #: 每件垃圾到船体中心的水平距离 (m) —— 波面空间相位差用
+        self._obj_dx = []
         for adr in self.obj_qadr:
             p_w = d.qpos[adr:adr + 3].copy()
             q_w = d.qpos[adr + 3:adr + 7].copy()
@@ -383,6 +469,7 @@ class PickPlaceEnv:
             self._obj_anchor.append(p_w)
             self._obj_anchor_q.append(q_w)
             self._obj_deck.append((R0.T @ (p_w - p0), R0.T @ R_w))
+            self._obj_dx.append(float(np.hypot(p_w[0], p_w[1])))
 
     def _apply_target_motion(self) -> None:
         """按 ``target_motion`` 把未被夹持的物体运动学驱动一遍。
@@ -410,8 +497,9 @@ class PickPlaceEnv:
                 continue                         # 夹在手上的交给 _apply_attach
             qa, va = int(qa), int(va)
             if mode == "surface":
-                p_exp = self._obj_anchor[i] + np.array([0.0, 0.0, dz])
-                q_exp, v_lin, v_ang = self._obj_anchor_q[i], (0.0, 0.0, vz), np.zeros(3)
+                p_exp = self._obj_anchor[i] + np.array([0.0, 0.0, dz[i]])
+                q_exp = self._obj_anchor_q[i]
+                v_lin, v_ang = (0.0, 0.0, vz[i]), np.zeros(3)
             else:
                 pos_d, R_d = self._obj_deck[i]
                 r = R @ pos_d

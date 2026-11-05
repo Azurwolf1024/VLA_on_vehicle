@@ -21,3 +21,6 @@ env:
   lang: zh
   grasp_mode: attach
   frame: deck               # 垃圾在水面(世界系), 但投放目标是甲板上的桶 -> 指令活在甲板系
+  target_motion: pinned     # 目标世界系静止（车载/岸上口径）。船载随波见 sea_surface.yaml，
+                            # 岸边夹海里见 shore_side.yaml；这一档是最容易的基线
+  surface_source: vehicle   # surface 档的波面来源：vehicle=船载(i) / independent=岸边

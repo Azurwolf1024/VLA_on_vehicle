@@ -1,0 +1,21 @@
+# 岸边/岸基 —— 车停在码头, 夹海里的垃圾
+#
+# 这是"目标动、基座不动"的纯跟踪工况。**注意 vehicle_enabled=false 不等于"没有海"**:
+# 海面由 surface_source=independent 单独提供。否则就会得到"载具不动 = 目标不动"的假象,
+# 而这个工况恰恰是来验证相反的结论。
+#
+# 实测(5 seeds, frame=deck, 抓取前目标在甲板系内的三维晃动):
+#   sea 0.35  目标晃 72.2 mm  ->  抓取偏差 0.1 mm
+#   sea 1.00  目标晃 291.4 mm ->  抓取偏差 0.2 mm（与静对静完全相同）
+#
+# 也就是说: **目标自己晃 29 cm 并不可怕**, 只要基座是稳的。同样的海面放到船上
+# （基座跟着摇）就变成 15.6 mm —— 差 78 倍。真正的误差源是基座运动。
+scene:
+  surface_kind: water
+env:
+  vehicle_kind: sea
+  vehicle_enabled: false       # 车/岸基: 基座零扰动
+  surface_source: independent  # 但水面照样在动
+  surface_scale: 0.35
+  target_motion: surface
+  frame: deck
