@@ -15,7 +15,7 @@ env:
   dt_decision: 0.1          # 决策层 10 Hz
   dt_ctrl: 0.01             # 内环 100 Hz
   action_scale: 0.02        # 每决策步最大 2 cm
-  max_decisions: 140        # 舷外取物行程约是原甲板任务的 2 倍
+  max_decisions: 170        # 舷外取物单程 0.72 m (2 cm/步 = 36 步); 140 时会在投放前超时
   vehicle_kind: sea
   vehicle_scale: 0.35       # 有义波高约 0.12 m 的近海工况
   lang: zh
