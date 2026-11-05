@@ -1,0 +1,68 @@
+{
+  "policy": "bc",
+  "episodes": 8,
+  "success_rate": 0.0,
+  "mean_steps": 170.0,
+  "vehicle_scale": 0.35,
+  "vehicle_kind": "sea",
+  "vehicle_enabled": true,
+  "elapsed_s": 91.66233611106873,
+  "results": [
+    {
+      "seed": 1000,
+      "success": false,
+      "steps": 170,
+      "instruction": "把蓝色纸箱收拾到垃圾舱",
+      "target_in_bin": false
+    },
+    {
+      "seed": 1001,
+      "success": false,
+      "steps": 170,
+      "instruction": "把绿色方块丢进垃圾舱",
+      "target_in_bin": false
+    },
+    {
+      "seed": 1002,
+      "success": false,
+      "steps": 170,
+      "instruction": "把蓝色易拉罐丢进垃圾舱",
+      "target_in_bin": false
+    },
+    {
+      "seed": 1003,
+      "success": false,
+      "steps": 170,
+      "instruction": "把蓝色易拉罐捡起来放进垃圾舱",
+      "target_in_bin": false
+    },
+    {
+      "seed": 1004,
+      "success": false,
+      "steps": 170,
+      "instruction": "把黄色方块丢进垃圾舱",
+      "target_in_bin": false
+    },
+    {
+      "seed": 1005,
+      "success": false,
+      "steps": 170,
+      "instruction": "把蓝色易拉罐捡起来放进垃圾舱",
+      "target_in_bin": false
+    },
+    {
+      "seed": 1006,
+      "success": false,
+      "steps": 170,
+      "instruction": "把红色纸箱收拾到垃圾舱",
+      "target_in_bin": false
+    },
+    {
+      "seed": 1007,
+      "success": false,
+      "steps": 170,
+      "instruction": "把蓝色水瓶捡起来放进垃圾舱",
+      "target_in_bin": false
+    }
+  ]
+}

@@ -176,8 +176,9 @@ def build_arm(spec: ArmSpec, gripper: GripperSpec | None = None,
               q_ref: np.ndarray | None = None, name: str = "arm",
               mount_pos=(0.0, 0.0, 0.0), mount_euler=(0.0, 0.0, 0.0),
               joint_kp: float = 2400.0, joint_kv: float = 60.0,
-              wrist_cam_pos=(0.0, -0.042, 0.008), wrist_cam_fovy: float = 80.0,
-              wrist_cam_tilt: float = 18.0, with_tool: bool = True
+              wrist_cam_pos=(0.0, -0.075, 0.010), wrist_cam_fovy: float = 80.0,
+              wrist_cam_tilt: float | None = None, wrist_cam_ahead: float = 0.0,
+              with_tool: bool = True
               ) -> ArmMJCF:
     """生成机械臂 + 夹爪 + 腕部相机的 MJCF 片段（不含 actuator）。"""
     gripper = gripper or GripperSpec()
@@ -209,7 +210,8 @@ def build_arm(spec: ArmSpec, gripper: GripperSpec | None = None,
         if i == spec.n - 1:
             if with_tool:
                 _tool(x, gripper, name=name, cam_pos=wrist_cam_pos,
-                      cam_fovy=wrist_cam_fovy, cam_tilt=wrist_cam_tilt)
+                      cam_fovy=wrist_cam_fovy, cam_tilt=wrist_cam_tilt,
+                      cam_ahead=wrist_cam_ahead)
         else:
             emit(i + 1)
         x.close("body")
@@ -232,7 +234,7 @@ def build_arm(spec: ArmSpec, gripper: GripperSpec | None = None,
 
 
 def _tool(x: _Xml, g: GripperSpec, name: str, cam_pos, cam_fovy: float,
-          cam_tilt: float = 18.0) -> None:
+          cam_tilt: float | None = None, cam_ahead: float = 0.0) -> None:
     """在法兰上挂平行夹爪 + TCP site + 腕部相机。
 
     工具系原点 = 法兰 + ``palm_z``; 指垫自掌部下沿 (工具 z=0.012) 向下一段 ``finger_len``,
@@ -262,12 +264,32 @@ def _tool(x: _Xml, g: GripperSpec, name: str, cam_pos, cam_fovy: float,
     # 只作测量用: 尺寸取到几乎为零, 避免挡住腕部相机
     x.leaf("site", name=f"{name}_tcp", pos=[0.0, 0.0, g.tcp - g.palm_z],
            size=[1e-5], rgba="0 0 0 0")
-    # 腕部相机: 装在**掌部侧边**并朝工具轴内倾 cam_tilt 度。
-    # 同轴装在两指之间时, 一旦夹住物体, 画面就被物体糊满 (物体距镜头只有 2 cm),
-    # 策略会丢掉"接下来往哪走"的视野; 侧装前倾则夹爪始终在画面下缘, 前方仍可见。
-    t = np.deg2rad(cam_tilt)
-    z_c = np.array([0.0, np.sin(t), -np.cos(t)])        # 相机 +z (视线反方向)
-    x_c = np.array([1.0, 0.0, 0.0])
+    # 腕部相机: 装在掌部**侧前方**, 自动瞄准 TCP。
+    #
+    # 两个装法都被实测否掉了:
+    #  1. 同轴装在两指之间 —— 一夹住物体, 物体距镜头 2 cm, 画面被它糊满;
+    #  2. 只往 -y(指爪开合方向) 侧移 —— 相机落在**指垫背面**。指垫在工具系
+    #     z∈[0.029,0.061]、相机在 z=0.020, 镜头顺着 +z 看过去先撞上垫子,
+    #     画面中间是一根巨大的黄色"柱子", 只有边缘能漏出一点物体。
+    # 现在沿 **x(与开合方向正交)** 侧移 + 前移到指垫前方, 从侧前方斜看夹持点:
+    # 两指的缝隙是敞开的, 掌部在 x 方向只有 30 mm, 挡不住。
+    cam_pos = np.asarray(cam_pos, float)
+    # 瞄点 = TCP 沿工具轴再往前 cam_ahead。指垫 73 mm 长、离镜头只有几厘米,
+    # 瞄准 TCP 时它必然占掉大半个画面; 往前瞄就能把夹爪压到画面下缘,
+    # 保留"接下来往哪走"的视野 (真实腕部相机也是这么装的)。
+    target = np.array([0.0, 0.0, g.tcp - g.palm_z + cam_ahead])
+    d = target - cam_pos
+    dist = float(np.linalg.norm(d))
+    z_c = -d / max(dist, 1e-6)                          # 相机 +z = 视线反方向
+    if cam_tilt is not None:                            # 给定额外俯仰: 绕 y 轴再抬一点
+        t = np.deg2rad(cam_tilt)
+        Ry = np.array([[np.cos(t), 0.0, np.sin(t)],
+                       [0.0, 1.0, 0.0],
+                       [-np.sin(t), 0.0, np.cos(t)]])
+        z_c = Ry @ z_c
+    up = np.array([0.0, 0.0, 1.0])                      # 工具轴, 用作"上"参考
+    x_c = np.cross(z_c, up)
+    x_c /= max(float(np.linalg.norm(x_c)), 1e-6)        # 视线与工具轴平行时退化, 有 y 偏移即可
     y_c = np.cross(z_c, x_c)
     R_cam = np.column_stack([x_c, y_c, z_c])
     x.leaf("camera", name=f"{name}_wrist_cam", pos=list(cam_pos),

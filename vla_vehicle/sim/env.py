@@ -53,9 +53,11 @@ class EnvConfig:
     dt_decision: float = 0.1
     action_scale: float = 0.02          # 每决策步的 TCP 位移上限 (m)
     resync_err: float = 0.10            # 指令与实测偏差超过此值时重新对齐
-    max_decisions: int = 90
-    workspace_lo: tuple = (-0.10, -0.34, 0.004)
-    workspace_hi: tuple = (0.44, 0.30, 0.42)
+    # 舷外取物单程就要 0.72 m（2 cm/步 = 36 步），加上下探/抬升/投放，
+    # 140 步偏紧：实测世界系有一条回合在第 139 步才刚开口，物体还没落进桶就超时。
+    max_decisions: int = 170
+    workspace_lo: tuple = (-0.30, -0.60, -0.16)
+    workspace_hi: tuple = (0.45, 0.34, 0.42)
     vehicle_kind: str = "sea"
     vehicle_scale: float = 0.35
     vehicle_time_scale: float = 1.0
@@ -68,8 +70,11 @@ class EnvConfig:
     frame: str = "deck"
     tsid: TSIDConfig = field(default_factory=TSIDConfig)
     grasp_mode: str = "attach"   # "attach"=运动学吸附(默认) | "contact"=纯接触摩擦
-    grasp_close_below: float = 0.30   # 开口小于此比例即视为"夹住"
-    grasp_open_above: float = 0.60    # 开口大于此比例即视为"松开"
+    grasp_close_below: float = 0.30   # **指令**小于此比例即视为"夹住"
+    # 松开看的是**实测**开口, 不是指令: 刚下发张开时手指还没动, 此时就恢复碰撞
+    # 会让物体和指垫重叠, 接触求解把它一步弹出 10 cm (实测 0.262→0.364)。
+    # 0.80 对应开口 ≈78 mm, 比最宽的垃圾 (60 mm) 宽出 9 mm/侧。
+    grasp_open_above: float = 0.80
     level_start: bool = True     # 回合从船体接近水平的时刻开始
     level_horizon: float = 40.0  # 在这个时间窗内挑起始相位
     rebuild_each_episode: bool = True
@@ -138,6 +143,7 @@ class PickPlaceEnv:
         self.items: List[TrashItem] = []
         self.grasp_idx = -1
         self._attach = None
+        self.grasp_err: float | None = None
         self.t0 = 0.0
         self.target_index = 0
         self.instruction = ""
@@ -159,8 +165,7 @@ class PickPlaceEnv:
         shape_keys = [shapes[i] for i in rng.permutation(len(shapes))[:n]]
         color_keys = [colors[i] for i in rng.permutation(len(colors))[:n]]
         sc = self.cfg.scene
-        bx, by = sc.bin_center
-        lim_x, lim_y = sc.deck_half[0] - sc.spawn_margin, sc.deck_half[1] - sc.spawn_margin
+        hull_y = sc.hull_half[1]
         picked, tries = [], 0
         while len(picked) < self.cfg.n_objects:
             tries += 1
@@ -169,9 +174,9 @@ class PickPlaceEnv:
             r = rng.uniform(*sc.spawn_r)
             th = np.deg2rad(rng.uniform(*sc.spawn_angle_deg))
             x, y = r * np.cos(th), r * np.sin(th)
-            if abs(x) > lim_x or abs(y) > lim_y:
-                continue
-            if np.hypot(x - bx, y - by) < sc.spawn_bin_clearance:
+            # 必须在**船体之外**: 否则垃圾会叠在甲板/船体上, 任务就退回甲板系了。
+            # work_side=-1 时要求 y ≤ -(hull_y + clearance), 即 work_side*y ≥ hull_y+clearance
+            if sc.work_side * y < hull_y + sc.spawn_hull_clearance:
                 continue
             if any(np.hypot(x - p[0], y - p[1]) < sc.spawn_min_sep for p in picked):
                 continue
@@ -179,12 +184,21 @@ class PickPlaceEnv:
         items = []
         for i, (shape_key, color_key, (x, y)) in enumerate(zip(shape_keys, color_keys, picked)):
             shape = SHAPES[shape_key]
-            # item.pos 是**甲板系**: 甲板面即 z=0, 世界高度由 vessel 位姿补上
-            z = shape.half_height + 0.002
-            # 初始朝向与夹爪开合方向(±y)对齐, 只留 ±10° 抖动。
-            # 夹爪最大开口 84 mm, 若长方体随机偏航 45°, 投影宽度可达 (a+b)/√2 > 84 mm,
-            # 爪子会压在物体顶上"抓不下去" —— 这属于能力边界, 不该由随机初始条件触发。
-            yaw = float(rng.uniform(-0.17, 0.17)) if shape.geom == "box" else 0.0
+            # item.pos 是**甲板系**; 垃圾躺在世界水平的水面/地面上, 对应甲板系 z = surface_z
+            z = sc.surface_z + shape.half_height + 0.002
+            # 长方体要让**窄边**正对指爪。指爪沿工具 y 轴开合, 而
+            # y_t = (sin yaw, -cos yaw) (见 topdown_rotation); 物体局部
+            # y = (-sinψ, cosψ)。令两者平行解得 ψ = yaw, 也就是物体偏航直接取
+            # 目标的方位角 φ (工具偏航也是 φ, 见 _tcp_R_target)。
+            # 曾经按 y_t=(cos,sin) 推成 90°-φ 与 φ-90°: 实测夹持瞬间
+            # 物体 y 与工具 y 夹角 29°/86°, 100 mm 宽的纸箱被 84 mm 的爪子
+            # 压进两侧各 8 mm, 下探卡死、抬起时被刮着走。
+            phi = float(np.arctan2(y, x))
+            yaw = float(phi % np.pi)
+            if shape.geom == "box":
+                yaw += float(rng.uniform(-0.17, 0.17))
+            else:
+                yaw = 0.0
             items.append(TrashItem(index=i, shape=shape, color=COLORS[color_key],
                                    pos=(x, y, z), yaw=yaw))
         return items, int(rng.integers(self.cfg.n_objects))
@@ -229,6 +243,7 @@ class PickPlaceEnv:
                                   for n in self.scene.object_names])
         self.obj_bid = np.array([mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, n)
                                  for n in self.scene.object_names])
+        self.obj_geoms = [np.where(m.geom_bodyid == b)[0] for b in self.obj_bid]
         self.tool_bid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, self.scene.tool_body)
         self.tcp_site = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, self.scene.tcp_site)
         self.cam_bow = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_CAMERA, self.scene.bow_cam)
@@ -316,6 +331,7 @@ class PickPlaceEnv:
         self.t = 0.0
         self.step_count = 0
         self.grasp_idx = -1
+        self.grasp_err = None
         self._tcp_cmd = np.zeros(3)
         self._deck_target = np.zeros(3)
         self._deck_R = np.eye(3)
@@ -402,14 +418,28 @@ class PickPlaceEnv:
             out.append(dict(item=it, p=Rv.T @ (p_w - pv), R=Rv.T @ R_w, p_world=p_w))
         return out
 
-    def _tcp_R_target(self, p_tcp: np.ndarray | None = None) -> np.ndarray:
-        """工具目标姿态: 恒定"朝下 + 指爪沿 ±y 开合"。
+    def _to_deck(self, p_world, R_world):
+        """世界系 (位置, 姿态) -> 当前甲板系。逆解只在甲板系里做。"""
+        R, p, _, _ = self._vessel_state(self.t)
+        return R.T @ (np.asarray(p_world, float) - p), R.T @ np.asarray(R_world, float)
 
-        刻意不随目标位置改变偏航 —— 1) 决策层只输出位移, 姿态是内环职责;
-        2) 偏航一旦随目标位置变, 腕部 J7 会在大范围运输时撞限位;
-        3) 恒定姿态避免把"目标在哪"这类特权信息从控制层漏给策略。
+    def _tcp_R_target(self, p_tcp: np.ndarray | None = None) -> np.ndarray:
+        """工具目标姿态: 朝下, **偏航跟随目标方位角**（甲板系）。
+
+        为什么不能像早期那样恒定 yaw=0: 目标一旦移到侧舷 (r≈0.45),
+        腕部 J7 就必须转过去, 恒定零偏航会把它顶到限位 —— 实测 r=0.45 时
+        位置误差 2.9 cm、旋转误差 0.29 rad, 也就是"够不着"。
+        改成 ``yaw = atan2(y, x)`` 后同一目标达到 0.5 mm, J6/J7 余量 >0.6 rad。
+
+        这不是把特权信息漏给策略: 姿态由**指令目标点本身**决定, 策略只给位移,
+        姿态仍是内环的职责 (与"恒定朝下"属于同一类假设)。
         """
-        return topdown_rotation(0.0)
+        if p_tcp is None:
+            return topdown_rotation(0.0)
+        p = np.asarray(p_tcp, float)
+        if float(np.hypot(p[0], p[1])) < 0.05:      # 太靠近基座轴, 偏航无意义
+            return topdown_rotation(0.0)
+        return topdown_rotation(float(np.arctan2(p[1], p[0])))
 
     # ------------------------------------------------------------------ #
     # 抓取 (运动学吸附)
@@ -436,7 +466,8 @@ class PickPlaceEnv:
         """
         if self.cfg.grasp_mode != "attach":
             return
-        if self.grasp_idx >= 0 and grip > self.cfg.grasp_open_above:
+        if self.grasp_idx >= 0 and self._grip_norm() > self.cfg.grasp_open_above:
+            self._set_object_collision(self.grasp_idx, True)
             self.grasp_idx = -1
             self._attach = None
         elif self.grasp_idx < 0 and grip < self.cfg.grasp_close_below:
@@ -446,6 +477,26 @@ class PickPlaceEnv:
                 R2, p2 = self._body_pose(int(self.obj_bid[cand]))
                 self.grasp_idx = cand
                 self._attach = (R1.T @ (p2 - p1), R1.T @ R2)
+                # 抓取瞬间 TCP 相对物体中心的**水平**偏差（世界系）。
+                # 取水平是因为竖直方向本来就有几何量: 指尖落在"顶面以下 45 mm",
+                # 对高罐子来说指尖比中心还高一点, 那不是误差。
+                # 水平偏差才是"有没有对准", 也才是船摇会污染的量。
+                R_v, p_v = self._vessel_pose()
+                p_tcp_w = p_v + R_v @ self.tcp_pose()[1]
+                d = np.asarray(p2) - p_tcp_w
+                self.grasp_err = float(np.hypot(d[0], d[1]))
+                # 吸附是把物体**刚性地钉在工具上**, 此时它和指垫的接触没有物理意义;
+                # 不关掉的话, 60 mm 宽的物体夹在 24 mm 的闭合行程里会把手指顶开
+                # (实测夹持中 grip 从 0.06 跳到 1.00, 画面上等于"张着手搬运")。
+                self._set_object_collision(cand, False)
+
+    def _set_object_collision(self, idx: int, on: bool) -> None:
+        """开关某个垃圾的碰撞位 (吸附期间关掉, 释放后恢复)。"""
+        if idx < 0:
+            return
+        for g in self.obj_geoms[idx]:
+            self.model.geom_contype[g] = 1 if on else 0
+            self.model.geom_conaffinity[g] = 17 if on else 0
 
     def _body_pose(self, bid: int):
         d = self.data
@@ -531,7 +582,8 @@ class PickPlaceEnv:
         if float(np.linalg.norm(self._tcp_cmd - self.tcp_pose()[1])) > self.cfg.resync_err:
             self._tcp_cmd = self.tcp_pose()[1].copy()      # 跟踪彻底掉队时重新对齐
         lo, hi = np.asarray(self.cfg.workspace_lo), np.asarray(self.cfg.workspace_hi)
-        if self.cfg.frame == "world":
+        world = self.cfg.frame == "world"
+        if world:
             # 世界系: **指令活在世界上**。增量按"当前甲板朝向"施加 (策略说的
             # "往前 2 cm"仍然是相对甲板), 但零动作时目标不随船漂 —— 这样机械臂
             # 才会真的去抵消船摇。边界仍按甲板系裁剪, 免得跑出可达域。
@@ -541,23 +593,34 @@ class PickPlaceEnv:
             deck_eq = np.clip(deck_eq, lo, hi)
             self._world_target = p_now + R_now @ deck_eq
             p_target = deck_eq
-            self._deck_R = self._tcp_R_target(p_target)
+            # 姿态也要在世界系给定: 垃圾是**世界水平**的, 工具必须垂直于水面,
+            # 而不是垂直于正在横摇的甲板。位置在甲板系里裁剪, 姿态在世界系里算。
+            d_w = self._world_target - p_now
+            yaw_w = 0.0 if float(np.hypot(d_w[0], d_w[1])) < 0.05 else float(
+                np.arctan2(d_w[1], d_w[0]))
+            self._world_R = topdown_rotation(yaw_w)
+            self._deck_R = R_now.T @ self._world_R
         else:
             p_target = np.clip(self._tcp_cmd + dxyz, lo, hi)
+            self._deck_R = self._tcp_R_target(p_target)
         self._tcp_cmd = p_target.copy()
         self._deck_target = p_target.copy()
-        if self.cfg.frame != "world":
-            self._deck_R = self._tcp_R_target(p_target)
 
         if self.cfg.control_mode == "tsid":
             for _ in range(self.cfg.n_ctrl):
                 self._advance(p_target, grip)
         else:
-            sol = self.ik.solve(p_target, self._deck_R, self.q_arm, max_iter=8)
-            q_start = self.q_arm
-            for k in range(self.cfg.n_ctrl):
-                s = (k + 1) / self.cfg.n_ctrl
-                self._advance(q_start + s * (sol.q - q_start), grip)
+            # 位置伺服: **每个内环步都重解一次**（热启动）。
+            # 早期是"每决策解一次 + 关节线性插值", 但插值会引入半步滞后 ——
+            # 在世界系下落后的就是几十毫米。更重要的是: 若只在某个参考系下重解,
+            # "甲板系 vs 世界系"的对照就会把"重解频率"混进去, 比出来的东西不干净。
+            for _ in range(self.cfg.n_ctrl):
+                if world:
+                    p_d, R_d = self._to_deck(self._world_target, self._world_R)
+                else:
+                    p_d, R_d = p_target, self._deck_R
+                sol = self.ik.solve(p_d, R_d, self.q_arm, max_iter=3)
+                self._advance(sol.q, grip)
         self.step_count += 1
 
         info = self.evaluate()
@@ -581,6 +644,7 @@ class PickPlaceEnv:
         in_gripper = self._holding(tgt)
         success = bool(inside[self.target_index] and not in_gripper)
         return dict(success=success, target_in_bin=bool(inside[self.target_index]),
+                    grasp_err=(None if self.grasp_err is None else float(self.grasp_err)),
                     inside=inside, target_index=self.target_index,
                     target_p=tgt["p"].copy(), holding=in_gripper,
                     step=self.step_count, t=self.t)

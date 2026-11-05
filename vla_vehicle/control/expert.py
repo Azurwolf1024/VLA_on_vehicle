@@ -26,18 +26,25 @@ import numpy as np
 class ExpertConfig:
     hover: float = 0.09          # 抓取点上方的悬停高度（甲板系, m）
     grasp_below_top: float = 0.045   # 指尖落在物体顶面以下多少（决定夹在哪一段）
-    grasp_min_z: float = 0.004       # 指尖最低高度（别磕甲板）
-    phase_timeout: int = 26      # 单个阶段最长决策步数（超时即放弃该条示范）
-    lift: float = 0.13           # 抬起高度
+    grasp_floor: float = 0.004       # 指尖离物体**支撑面**的最小高度（别磕水面）
+    phase_timeout: int = 40      # 单个阶段最长决策步数
+    # 26 步在甲板任务里够用, 但舷外取物单程就要 25~30 步 (0.6 m / 2 cm);
+    # 提前超时会让'悬停'阶段在离目标 9 cm 处就结束, 接着斜着撞上去把垃圾推走。
+    lift: float = 0.13           # 抬起高度（相对抓取点）
+    clear_z: float = 0.120       # 抬起至少要越过舷墙的高度（甲板系）
     above_bin: float = 0.16      # 垃圾舱上方的运输高度
-    release_z: float = 0.05      # 松手时指尖高度
+    release_z: float = 0.03      # 松手时指尖高度（低了才不会被舱壁弹出去）
     close_steps: int = 4         # 闭合夹爪后保持的决策步数
     open_steps: int = 4          # 张开夹爪后保持的决策步数
+    # 松手后原地等一小会儿再收尾: 物体从指尖高度掉到舱底要 ~0.17 s,
+    # 不等的话"回合结束"这一刻它还在空中, evaluate 会判失败 ——
+    # 实测过一条世界系回合, 放到位了但差 2 步没落底。
+    settle_steps: int = 6
     reach_tol: float = 0.006     # 判定"到位"的容差
 
 
 PHASES = ["hover", "descend", "close", "lift", "to_bin", "descend_bin",
-          "open", "retreat", "done"]
+          "open", "retreat", "settle", "done"]
 
 
 class ScriptedExpert:
@@ -67,6 +74,7 @@ class ScriptedExpert:
         self.phase = PHASES[0]
         self.timer = 0
         self.hold: Optional[np.ndarray] = None
+        self.grasp_z_frozen: Optional[float] = None   # 抓住瞬间的指尖高度
         self.done = False
         self.stalled = False
 
@@ -84,14 +92,20 @@ class ScriptedExpert:
         """
         st = self.env.object_states()[self.env.target_index]
         top = float(st["p"][2]) + st["item"].shape.half_height
-        return max(self.cfg.grasp_min_z, top - self.cfg.grasp_below_top)
+        # 物体躺在世界水平的水面/地面上, 所以"下限"要相对**它自己的支撑面**算,
+        # 不能写死 0.004 (那是甲板面的高度)。垃圾在舷外时支撑面是 -deck_height。
+        floor = float(st["p"][2]) - st["item"].shape.half_height + self.cfg.grasp_floor
+        return max(floor, top - self.cfg.grasp_below_top)
 
     def _targets(self):
         """当前阶段的 (目标点, 夹爪指令)。"""
         env, cfg = self.env, self.cfg
         sc = env.cfg.scene
         obj = env.object_states()[env.target_index]["p"]
-        gz = self.grasp_z()
+        # 抬起阶段必须用**抓住那一刻**的指尖高度: 物体已经在夹爪上, 它的高度
+        # 会跟着手一起涨, 若继续读实时位姿, "抬到 gz+lift" 就变成追着自己往上爬
+        # (实测 10 步内从 0.12 爬到 0.33, 直到阶段超时)。
+        gz = self.grasp_z_frozen if self.grasp_z_frozen is not None else self.grasp_z()
         bx, by = sc.bin_center
         p_tcp = env.tcp_pose()[1]
         ph = self.phase
@@ -102,7 +116,8 @@ class ScriptedExpert:
         if ph == "close":
             return (self.hold if self.hold is not None else p_tcp), 0.0
         if ph == "lift":
-            return np.array([obj[0], obj[1], gz + cfg.lift]), 0.0
+            # 抬起来必须**越过舷墙**再横移, 否则夹爪会拖着垃圾刮过作业口边沿。
+            return np.array([obj[0], obj[1], max(gz + cfg.lift, cfg.clear_z)]), 0.0
         if ph == "to_bin":
             return np.array([bx, by, cfg.above_bin]), 0.0
         if ph == "descend_bin":
@@ -111,6 +126,8 @@ class ScriptedExpert:
             return (self.hold if self.hold is not None else np.array([bx, by, cfg.release_z])), 1.0
         if ph == "retreat":
             return np.array([bx, by, cfg.above_bin]), 1.0
+        if ph == "settle":
+            return p_tcp, 1.0        # 原地不动, 等物体落底
         return p_tcp, 1.0
 
     # ------------------------------------------------------------------ #
@@ -133,10 +150,12 @@ class ScriptedExpert:
 
         # 阶段推进
         self.timer += 1
-        if self.phase in ("close", "open"):
+        if self.phase in ("close", "open", "settle"):
             if self.phase == "close" and self.hold is None:
                 self.hold = p_tcp.copy()
-            need = cfg.close_steps if self.phase == "close" else cfg.open_steps
+                self.grasp_z_frozen = self.grasp_z()
+            need = {"close": cfg.close_steps, "open": cfg.open_steps,
+                    "settle": cfg.settle_steps}[self.phase]
             if self.timer >= need:
                 self._advance_phase()
         elif self.phase not in ("done",):

@@ -7,7 +7,7 @@ Episode(
   global_rgb (T,H,W,3) uint8   # 船头全局相机
   wrist_rgb  (T,H,W,3) uint8   # 腕部相机
   q  (T,7)  dq (T,7)           # 关节角/角速度（本体感觉）
-  tcp (T,3)                    # 甲板系 TCP 位置
+  tcp (T,3)                    # 甲板系 TCP 位置（垃圾在舷外水面上, z 会到 −0.12 量级）
   grip (T,)                    # 归一化开口 0=闭 1=开
   action (T,4)                 # [dx,dy,dz,g]，前三维 ×action_scale 得米
   obj_track (T,N,3)            # 物体在甲板系的位置（特权，只用于评测/可视化）
@@ -20,7 +20,8 @@ Episode(
 写入 `<out>/ep0007.npz`（`np.savez_compressed`），另有一份 `index.jsonl` 便于快速筛选。
 字段语义与版本号在 `vla_vehicle/data/schema.py`，改格式时**必须**同时改 `FORMAT_VERSION`。
 
-体积参考：160×160 双相机、约 70 帧 → **2.1 MB/条**（压缩后）。100 条 ≈ 210 MB。
+体积参考：160×160 双相机、79–105 帧（均值 88）→ **1.7 MB/条**（压缩后，实测 30 条
+1.50–1.90 MB）。100 条 ≈ 170 MB。采集速度 12 s/条（含建模与静置）。
 
 ## 2. 采集
 

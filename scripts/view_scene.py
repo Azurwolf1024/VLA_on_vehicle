@@ -32,23 +32,29 @@ from vla_vehicle.sim.env import PickPlaceEnv              # noqa: E402
 
 
 def headless(env, out: Path, frames: int, steps_every: int = 12) -> None:
+    """按**阶段**取帧，而不是按固定步数。
+
+    固定步数取样在"舷外取物"任务里几乎全落在接近段（前 40 步都在伸臂），
+    出来的图看不出抓、抬、投。按阶段各取一帧能直接讲清楚一条回合。
+    """
     import cv2
     obs = env.reset(seed=0)
     expert = ScriptedExpert(env)
+    wanted = ["hover", "descend", "lift", "descend_bin"][:frames]
     rows = []
     for k in range(env.cfg.max_decisions):
-        if k % steps_every == 0 and len(rows) < frames:
-            rows.append(np.hstack([obs.global_rgb, obs.wrist_rgb]))
+        if expert.phase in wanted and expert.phase not in [r[0] for r in rows]:
+            rows.append((expert.phase, np.hstack([obs.global_rgb, obs.wrist_rgb])))
         obs, _, done, info = env.step(expert.act(obs))
         if done:
             break
     if not rows:
-        rows = [np.hstack([obs.global_rgb, obs.wrist_rgb])]
-    import numpy as _np
-    img = _np.vstack(rows)
+        rows = [("end", np.hstack([obs.global_rgb, obs.wrist_rgb]))]
+    img = np.vstack([r[1] for r in rows])
     out.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out), img[..., ::-1])
-    print(f"已保存 {out} ({img.shape[1]}x{img.shape[0]}), success={info['success']}")
+    print(f"已保存 {out} ({img.shape[1]}x{img.shape[0]}), 阶段={[r[0] for r in rows]}, "
+          f"success={info['success']}")
 
 
 def interactive(env) -> None:
