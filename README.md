@@ -294,6 +294,10 @@ python scripts/view_scene.py --visual capsule    # 骨架胶囊（默认自动�
 两档是**同一个被控对象**，`tests/test_visual.py` 守死：`M(q)` 与 `bias` 逐位相同、
 总质量相同（5.1202 kg）、视觉 geom 一律 `contype=0`。
 
+![visual tiers](docs/assets/visual_tiers.png)
+
+*同一个位形。左 `capsule`，右 `mesh` —— 连关节外壳、螺栓孔、走线槽都在。*
+
 > **坑**：`<geom type="mesh">` 所在 body 若没写 `<inertial>`，MuJoCo 会按网格体积**当实心体**
 > 估质量 —— 基座凭空多 0.73 kg。基座焊在载具上没有自由度，`M` 不受影响，但"整臂质量"
 > 必须对得上厂商参数，现在从上游 URDF 读（1.0646 kg）。
